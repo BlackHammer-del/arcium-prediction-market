@@ -1,0 +1,26 @@
+# Rust / Anchor
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Solana
+test-ledger/
+.anchor/
+
+# Node
+node_modules/
+.next/
+out/
+*.log
+
+# Keys - NEVER commit these
+*.json
+!package.json
+!programs/*/Cargo.toml
+!tsconfig.json
+!Anchor.toml
+
+# OS
+.DS_Store
+.env
+.env.local

@@ -1,0 +1,17 @@
+{
+  "name": "arcium-prediction-market",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["app", "tests"],
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "deploy": "anchor deploy",
+    "dev": "cd app && npm run dev",
+    "setup": "bash scripts/setup.sh"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.30.1",
+    "typescript": "^5.3.3"
+  }
+}
