@@ -197,3 +197,25 @@ body::after {
   display: flex;
   width: max-content;
 }
+
+.pink-grid-bg {
+  position: relative;
+}
+
+.pink-grid-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(236, 72, 153, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(236, 72, 153, 0.1) 1px, transparent 1px);
+  background-size: 38px 38px;
+  opacity: 0.32;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pink-grid-bg > * {
+  position: relative;
+  z-index: 1;
+}

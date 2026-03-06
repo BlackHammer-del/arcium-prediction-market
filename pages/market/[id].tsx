@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import Navbar from "../../components/Navbar";
@@ -22,10 +22,19 @@ import {
   serializeCiphertext,
 } from "../../utils/arcium";
 import {
+  deserializeActivityRecord,
   deserializeMarket,
   deserializePosition,
+  deserializeProbabilityPoint,
+  deserializeSettlementDispute,
   type ApiMarket,
+  type ApiMarketActivityRecord,
   type ApiPosition,
+  type ApiProbabilityHistoryPoint,
+  type ApiSettlementDisputeRecord,
+  type MarketActivityRecord,
+  type ProbabilityHistoryPoint,
+  type SettlementDisputeRecord,
 } from "../../utils/api";
 
 type StepState = "idle" | "encrypting" | "submitting" | "confirmed" | "error";
@@ -41,6 +50,68 @@ function formatSigned(value: number): string {
   return `${value >= 0 ? "+" : "-"}${rounded} SOL`;
 }
 
+function activityLabel(type: string): string {
+  const labels: Record<string, string> = {
+    MARKET_CREATED: "Market created",
+    POSITION_SUBMITTED: "Position submitted",
+    DISPUTE_OPENED: "Dispute opened",
+    DISPUTE_EVIDENCE_ADDED: "Evidence added",
+    DISPUTE_RESOLVED: "Dispute resolved",
+    MARKET_STATUS_CHANGED: "Status changed",
+  };
+  return labels[type] ?? type;
+}
+
+function ProbabilityChart({ points }: { points: ProbabilityHistoryPoint[] }) {
+  if (points.length < 2) {
+    return <p className="font-mono text-xs text-slate-500">Not enough data points yet.</p>;
+  }
+
+  const width = 560;
+  const height = 200;
+  const padding = 16;
+  const xStep = (width - padding * 2) / (points.length - 1);
+
+  const yesPath = points
+    .map((point, index) => {
+      const x = padding + index * xStep;
+      const y = padding + ((100 - point.yesProbability) / 100) * (height - padding * 2);
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  const noPath = points
+    .map((point, index) => {
+      const x = padding + index * xStep;
+      const y = padding + ((100 - point.noProbability) / 100) * (height - padding * 2);
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+
+  const latest = points[points.length - 1];
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="font-mono text-xs text-emerald-300">YES {latest.yesProbability.toFixed(1)}%</p>
+        <p className="font-mono text-xs text-rose-300">NO {latest.noProbability.toFixed(1)}%</p>
+      </div>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        style={{ maxHeight: "220px", borderRadius: "8px", background: "rgba(255,255,255,0.03)" }}
+      >
+        <path d={yesPath} stroke="#34D399" fill="none" strokeWidth="2.5" />
+        <path d={noPath} stroke="#F87171" fill="none" strokeWidth="2.5" />
+      </svg>
+      <div className="mt-3 flex justify-between font-mono text-xs text-slate-500">
+        <span>{format(points[0].timestamp, "MMM d, HH:mm")}</span>
+        <span>{format(points[points.length - 1].timestamp, "MMM d, HH:mm")}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function MarketPage() {
   const router = useRouter();
   const { connected, publicKey } = useWallet();
@@ -52,6 +123,12 @@ export default function MarketPage() {
   const [error, setError] = useState<string | null>(null);
   const [market, setMarket] = useState<DemoMarket | null>(null);
   const [history, setHistory] = useState<DemoPosition[]>([]);
+  const [probabilityHistory, setProbabilityHistory] = useState<ProbabilityHistoryPoint[]>([]);
+  const [activity, setActivity] = useState<MarketActivityRecord[]>([]);
+  const [disputes, setDisputes] = useState<SettlementDisputeRecord[]>([]);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [evidenceSummary, setEvidenceSummary] = useState("");
+  const [disputeError, setDisputeError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -60,56 +137,67 @@ export default function MarketPage() {
     return Number.parseInt(router.query.id, 10);
   }, [router.query.id]);
 
-  useEffect(() => {
+  const fetchMarketData = useCallback(async () => {
     if (!router.isReady || Number.isNaN(marketId)) return;
 
-    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
 
-    async function loadMarket() {
-      setLoading(true);
-      setLoadError(null);
+    try {
+      const wallet = publicKey?.toBase58();
+      const suffix = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
+      const response = await fetch(`/api/markets/${marketId}${suffix}`);
+      const payload = await response.json();
 
-      try {
-        const wallet = publicKey?.toBase58();
-        const suffix = wallet ? `?wallet=${encodeURIComponent(wallet)}` : "";
-        const response = await fetch(`/api/markets/${marketId}${suffix}`);
-        const payload = await response.json();
-
-        if (!response.ok) {
-          throw new Error(payload?.error ?? "Could not load market.");
-        }
-
-        if (!cancelled) {
-          const marketItem = payload?.market as ApiMarket;
-          const historyItems = Array.isArray(payload?.history)
-            ? (payload.history as ApiPosition[]).map((item) => deserializePosition(item))
-            : [];
-          setMarket(deserializeMarket(marketItem));
-          setHistory(historyItems);
-        }
-      } catch (caught) {
-        if (!cancelled) {
-          const fallbackMarket = DEMO_MARKETS.find((item) => item.id === marketId) ?? null;
-          const fallbackHistory = DEMO_POSITIONS.filter((item) => item.marketId === marketId).sort(
-            (left, right) => right.submittedAt.getTime() - left.submittedAt.getTime()
-          );
-          setMarket(fallbackMarket);
-          setHistory(fallbackHistory);
-          const message = caught instanceof Error ? caught.message : "Unknown API error.";
-          setLoadError(message);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Could not load market.");
       }
-    }
 
-    loadMarket();
-    return () => {
-      cancelled = true;
-    };
+      const marketItem = payload?.market as ApiMarket;
+      const historyItems = Array.isArray(payload?.history)
+        ? (payload.history as ApiPosition[]).map((item) => deserializePosition(item))
+        : [];
+      const probabilityItems = Array.isArray(payload?.probabilityHistory)
+        ? (payload.probabilityHistory as ApiProbabilityHistoryPoint[]).map((item) =>
+            deserializeProbabilityPoint(item)
+          )
+        : [];
+      const activityItems = Array.isArray(payload?.activity)
+        ? (payload.activity as ApiMarketActivityRecord[]).map((item) =>
+            deserializeActivityRecord(item)
+          )
+        : [];
+      const disputeItems = Array.isArray(payload?.disputes)
+        ? (payload.disputes as ApiSettlementDisputeRecord[]).map((item) =>
+            deserializeSettlementDispute(item)
+          )
+        : [];
+
+      setMarket(deserializeMarket(marketItem));
+      setHistory(historyItems);
+      setProbabilityHistory(probabilityItems);
+      setActivity(activityItems);
+      setDisputes(disputeItems);
+    } catch (caught) {
+      const fallbackMarket = DEMO_MARKETS.find((item) => item.id === marketId) ?? null;
+      const fallbackHistory = DEMO_POSITIONS.filter((item) => item.marketId === marketId).sort(
+        (left, right) => right.submittedAt.getTime() - left.submittedAt.getTime()
+      );
+      setMarket(fallbackMarket);
+      setHistory(fallbackHistory);
+      setProbabilityHistory([]);
+      setActivity([]);
+      setDisputes([]);
+      const message = caught instanceof Error ? caught.message : "Unknown API error.";
+      setLoadError(message);
+    } finally {
+      setLoading(false);
+    }
   }, [marketId, publicKey, router.isReady]);
+
+  useEffect(() => {
+    fetchMarketData();
+  }, [fetchMarketData]);
 
   async function handleSubmit() {
     if (!market || !choice || !connected) return;
@@ -148,20 +236,68 @@ export default function MarketPage() {
         throw new Error(payload?.error ?? "Could not submit encrypted position.");
       }
 
-      const newPosition = deserializePosition(payload.position as ApiPosition);
-      setHistory((current) =>
-        [newPosition, ...current].sort((left, right) => right.submittedAt.getTime() - left.submittedAt.getTime())
-      );
-      setMarket((current) =>
-        current ? { ...current, totalParticipants: current.totalParticipants + 1 } : current
-      );
-
       setTxSig(typeof payload?.txSig === "string" ? payload.txSig : null);
       setStep("confirmed");
+      await fetchMarketData();
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Unknown error";
       setError(message);
       setStep("error");
+    }
+  }
+
+  async function handleOpenDispute() {
+    if (!market || !connected || !publicKey) return;
+    if (!disputeReason.trim()) return;
+
+    setDisputeError(null);
+
+    try {
+      const response = await fetch(`/api/markets/${market.id}/disputes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: publicKey.toBase58(),
+          reason: disputeReason,
+          evidenceSummary: evidenceSummary,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Could not open dispute.");
+      }
+      setDisputeReason("");
+      setEvidenceSummary("");
+      await fetchMarketData();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unknown dispute error.";
+      setDisputeError(message);
+    }
+  }
+
+  async function handleResolveDispute(disputeId: string, outcome: "MarketInvalid" | "SettlementUpheld") {
+    if (!connected || !publicKey) return;
+    try {
+      const response = await fetch(`/api/disputes/${disputeId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: publicKey.toBase58(),
+          outcome,
+          resolutionNote:
+            outcome === "MarketInvalid"
+              ? "Invalid criteria confirmed by challenger evidence."
+              : "Settlement evidence is sufficient and upheld.",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Could not resolve dispute.");
+      }
+      await fetchMarketData();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unknown dispute error.";
+      setDisputeError(message);
     }
   }
 
@@ -240,6 +376,41 @@ export default function MarketPage() {
                   <p className="font-mono text-xs text-slate-500">RESOLUTION SOURCE</p>
                   <p className="font-mono text-sm text-cyan-300">{market.resolutionSource}</p>
                 </div>
+              </div>
+            </div>
+
+            <div className="card mb-6 p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-mono text-xs tracking-widest text-violet-300">PRICE / PROBABILITY HISTORY</h2>
+                <p className="font-mono text-xs text-slate-500">
+                  {probabilityHistory.length} point{probabilityHistory.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <ProbabilityChart points={probabilityHistory} />
+            </div>
+
+            <div className="card mb-6 p-6">
+              <h2 className="mb-4 font-mono text-xs tracking-widest text-violet-300">MARKET ACTIVITY FEED</h2>
+              <div className="space-y-3">
+                {activity.length === 0 ? (
+                  <p className="font-mono text-xs text-slate-500">No indexed activity yet.</p>
+                ) : (
+                  activity.slice(0, 10).map((event) => (
+                    <div
+                      key={event.id}
+                      className="rounded-lg border border-white/10 bg-white/5 px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-mono text-xs text-cyan-300">{activityLabel(event.type)}</p>
+                        <p className="font-mono text-xs text-slate-500">
+                          {formatDistanceToNow(event.timestamp, { addSuffix: true })}
+                        </p>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">{event.details}</p>
+                      <p className="mt-1 font-mono text-[10px] text-slate-500">slot {event.slot}</p>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
@@ -342,6 +513,75 @@ export default function MarketPage() {
                 </div>
               </div>
             ) : null}
+
+            <div className="card mb-6 p-6">
+              <h2 className="mb-4 font-mono text-sm tracking-widest text-violet-300">SETTLEMENT DISPUTES</h2>
+              {!connected ? (
+                <div className="py-6 text-center">
+                  <p className="mb-4 text-sm text-slate-400">
+                    Connect wallet to open disputes and submit evidence.
+                  </p>
+                  <WalletMultiButton />
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={disputeReason}
+                    onChange={(event) => setDisputeReason(event.target.value)}
+                    placeholder="Explain why this market should be challenged or invalidated."
+                    rows={3}
+                    className="mb-3 w-full resize-none rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
+                  />
+                  <input
+                    value={evidenceSummary}
+                    onChange={(event) => setEvidenceSummary(event.target.value)}
+                    placeholder="Evidence summary (optional)"
+                    className="mb-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none"
+                  />
+                  {disputeError ? <p className="mb-3 font-mono text-xs text-rose-300">{disputeError}</p> : null}
+                  <button onClick={handleOpenDispute} className="btn-secondary w-full">
+                    OPEN DISPUTE
+                  </button>
+                </>
+              )}
+
+              <div className="mt-5 space-y-3">
+                {disputes.length === 0 ? (
+                  <p className="font-mono text-xs text-slate-500">No disputes yet.</p>
+                ) : (
+                  disputes.slice(0, 6).map((dispute) => (
+                    <div key={dispute.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                      <div className="mb-1 flex items-center justify-between">
+                        <p className="font-mono text-xs text-cyan-300">{dispute.status.toUpperCase()}</p>
+                        <p className="font-mono text-xs text-slate-500">
+                          {formatDistanceToNow(dispute.createdAt, { addSuffix: true })}
+                        </p>
+                      </div>
+                      <p className="text-xs text-slate-300">{dispute.reason}</p>
+                      <p className="mt-1 font-mono text-[10px] text-slate-500">
+                        {dispute.evidence.length} evidence item{dispute.evidence.length === 1 ? "" : "s"}
+                      </p>
+                      {connected && dispute.status === "Open" ? (
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            onClick={() => handleResolveDispute(dispute.id, "MarketInvalid")}
+                            className="rounded-md border border-amber-400/40 px-2 py-1 font-mono text-[10px] text-amber-300"
+                          >
+                            MARK INVALID
+                          </button>
+                          <button
+                            onClick={() => handleResolveDispute(dispute.id, "SettlementUpheld")}
+                            className="rounded-md border border-emerald-400/40 px-2 py-1 font-mono text-[10px] text-emerald-300"
+                          >
+                            UPHOLD
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
             {isOpen ? (
               <div className="card p-6">

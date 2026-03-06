@@ -3,7 +3,7 @@ import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../..
 import { serializeMarket } from "../../../utils/api";
 import { normalizeWallet, store } from "../../../lib/server/store";
 
-const STATUS_SET = new Set<MarketStatus>(["Open", "Resolving", "Settled", "Cancelled"]);
+const STATUS_SET = new Set<MarketStatus>(["Open", "Resolving", "Settled", "Cancelled", "Invalid"]);
 
 function parseCategory(raw: string | string[] | undefined): MarketCategory | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;

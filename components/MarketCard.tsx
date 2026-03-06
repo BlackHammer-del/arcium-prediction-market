@@ -21,6 +21,7 @@ const STATUS_COLORS: Record<MarketStatus, string> = {
   Resolving: "#C084FC",
   Settled: "#22D3EE",
   Cancelled: "#94A3B8",
+  Invalid: "#F59E0B",
 };
 
 export default function MarketCard(props: MarketCardProps) {

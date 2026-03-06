@@ -33,8 +33,35 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     .slice(0, 50)
     .map((position) => serializePosition(position));
 
+  const probabilityHistory = store.getMarketProbabilityHistory(id, 96).map((point) => ({
+    ...point,
+    timestamp: point.timestamp.toISOString(),
+  }));
+  const activity = store.getMarketActivity(id, 100).map((event) => ({
+    ...event,
+    timestamp: event.timestamp.toISOString(),
+  }));
+  const disputes = store.listMarketDisputes(id).map((dispute) => ({
+    ...dispute,
+    createdAt: dispute.createdAt.toISOString(),
+    updatedAt: dispute.updatedAt.toISOString(),
+    evidence: dispute.evidence.map((evidence) => ({
+      ...evidence,
+      createdAt: evidence.createdAt.toISOString(),
+    })),
+    resolution: dispute.resolution
+      ? {
+          ...dispute.resolution,
+          resolvedAt: dispute.resolution.resolvedAt.toISOString(),
+        }
+      : undefined,
+  }));
+
   res.status(200).json({
     market: serializeMarket(market),
     history,
+    probabilityHistory,
+    activity,
+    disputes,
   });
 }

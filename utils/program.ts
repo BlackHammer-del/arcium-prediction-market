@@ -20,7 +20,7 @@ export const VAULT_SEED = Buffer.from("vault");
 export const POSITION_SEED = Buffer.from("position");
 export const REGISTRY_SEED = Buffer.from("registry");
 
-export type MarketStatus = "Open" | "Resolving" | "Settled" | "Cancelled";
+export type MarketStatus = "Open" | "Resolving" | "Settled" | "Cancelled" | "Invalid";
 export type MarketCategory = "Crypto" | "Football" | "Politics" | "Macro" | "Tech";
 export type ResolutionStepStatus = "completed" | "active" | "upcoming";
 

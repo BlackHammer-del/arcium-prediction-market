@@ -25,3 +25,4 @@ out/
 .env
 .env.local
 GITHUB_PUSH.md
+data/*.ndjson

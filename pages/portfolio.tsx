@@ -3,9 +3,9 @@ import Head from "next/head";
 import Link from "next/link";
 import { format } from "date-fns";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import Navbar from "../components/Navbar";
 import {
-  DEMO_POSITIONS,
   calculatePositionPnl,
   getPortfolioSummary,
   type DemoPosition,
@@ -18,14 +18,21 @@ function formatSigned(value: number): string {
 }
 
 export default function PortfolioPage() {
-  const { publicKey } = useWallet();
-  const wallet = publicKey?.toBase58() ?? "demo_wallet";
+  const { connected, publicKey } = useWallet();
+  const wallet = publicKey?.toBase58();
 
-  const [positions, setPositions] = useState<DemoPosition[]>(DEMO_POSITIONS);
-  const [loading, setLoading] = useState(true);
+  const [positions, setPositions] = useState<DemoPosition[]>([]);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!connected || !wallet) {
+      setPositions([]);
+      setLoading(false);
+      setLoadError(null);
+      return;
+    }
+
     let cancelled = false;
 
     async function loadPortfolio() {
@@ -50,7 +57,7 @@ export default function PortfolioPage() {
         if (!cancelled) {
           const message = caught instanceof Error ? caught.message : "Unknown API error.";
           setLoadError(message);
-          setPositions(DEMO_POSITIONS);
+          setPositions([]);
         }
       } finally {
         if (!cancelled) {
@@ -63,7 +70,7 @@ export default function PortfolioPage() {
     return () => {
       cancelled = true;
     };
-  }, [wallet]);
+  }, [connected, wallet]);
 
   const summary = useMemo(() => getPortfolioSummary(positions), [positions]);
   const sorted = useMemo(
@@ -94,101 +101,118 @@ export default function PortfolioPage() {
             </Link>
           </div>
 
-          <div className="mb-4 flex items-center justify-between">
-            {loading ? (
-              <p className="font-mono text-xs text-slate-500">Loading portfolio from backend...</p>
-            ) : loadError ? (
-              <p className="font-mono text-xs text-amber-300">Using fallback data: {loadError}</p>
-            ) : (
-              <p className="font-mono text-xs text-emerald-300">Live backend data loaded</p>
-            )}
-          </div>
-
-          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">TOTAL STAKED</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.totalStaked.toFixed(2)} SOL</p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">REALIZED</p>
-              <p
-                className="mt-2 font-mono text-xl"
-                style={{ color: summary.realizedPnl >= 0 ? "#34D399" : "#F87171" }}
-              >
-                {formatSigned(summary.realizedPnl)}
+          {!connected ? (
+            <div className="card p-10 text-center">
+              <p className="mb-4 font-body text-slate-400">
+                Connect wallet to view your portfolio data.
               </p>
+              <WalletMultiButton />
             </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">UNREALIZED</p>
-              <p
-                className="mt-2 font-mono text-xl"
-                style={{ color: summary.unrealizedPnl >= 0 ? "#34D399" : "#F87171" }}
-              >
-                {formatSigned(summary.unrealizedPnl)}
-              </p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">SETTLED</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.settledCount}</p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">WIN RATE</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.winRate.toFixed(1)}%</p>
-            </div>
-          </div>
-
-          <div className="card overflow-hidden">
-            <div className="overflow-x-auto">
-              <div
-                className="grid px-4 py-3 font-mono text-xs tracking-wider text-slate-500"
-                style={{
-                  gridTemplateColumns: "1.5fr 0.6fr 0.6fr 0.7fr 0.8fr 0.9fr 0.8fr",
-                  borderBottom: "1px solid rgba(255,255,255,0.06)",
-                  minWidth: "900px",
-                }}
-              >
-                <span>MARKET</span>
-                <span>SIDE</span>
-                <span>STAKE</span>
-                <span>ENTRY</span>
-                <span>MARK</span>
-                <span>SUBMITTED</span>
-                <span>PNL</span>
+          ) : (
+            <>
+              <div className="mb-4 flex items-center justify-between">
+                {loading ? (
+                  <p className="font-mono text-xs text-slate-500">Loading portfolio from backend...</p>
+                ) : loadError ? (
+                  <p className="font-mono text-xs text-amber-300">{loadError}</p>
+                ) : (
+                  <p className="font-mono text-xs text-emerald-300">Wallet-scoped portfolio loaded</p>
+                )}
               </div>
-              {sorted.map((position) => {
-                const pnl = calculatePositionPnl(position);
-                return (
-                  <Link
-                    key={position.id}
-                    href={`/market/${position.marketId}`}
-                    className="grid px-4 py-3 text-sm no-underline transition-colors hover:bg-white/5"
+
+              <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <div className="card p-5">
+                  <p className="font-mono text-xs text-slate-500">TOTAL STAKED</p>
+                  <p className="mt-2 font-mono text-xl text-white">
+                    {summary.totalStaked.toFixed(2)} SOL
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <p className="font-mono text-xs text-slate-500">REALIZED</p>
+                  <p
+                    className="mt-2 font-mono text-xl"
+                    style={{ color: summary.realizedPnl >= 0 ? "#34D399" : "#F87171" }}
+                  >
+                    {formatSigned(summary.realizedPnl)}
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <p className="font-mono text-xs text-slate-500">UNREALIZED</p>
+                  <p
+                    className="mt-2 font-mono text-xl"
+                    style={{ color: summary.unrealizedPnl >= 0 ? "#34D399" : "#F87171" }}
+                  >
+                    {formatSigned(summary.unrealizedPnl)}
+                  </p>
+                </div>
+                <div className="card p-5">
+                  <p className="font-mono text-xs text-slate-500">SETTLED</p>
+                  <p className="mt-2 font-mono text-xl text-white">{summary.settledCount}</p>
+                </div>
+                <div className="card p-5">
+                  <p className="font-mono text-xs text-slate-500">WIN RATE</p>
+                  <p className="mt-2 font-mono text-xl text-white">{summary.winRate.toFixed(1)}%</p>
+                </div>
+              </div>
+
+              <div className="card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <div
+                    className="grid px-4 py-3 font-mono text-xs tracking-wider text-slate-500"
                     style={{
                       gridTemplateColumns: "1.5fr 0.6fr 0.6fr 0.7fr 0.8fr 0.9fr 0.8fr",
-                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                      borderBottom: "1px solid rgba(255,255,255,0.06)",
                       minWidth: "900px",
                     }}
                   >
-                    <span className="text-slate-200">{position.marketTitle}</span>
-                    <span
-                      className="font-mono"
-                      style={{ color: position.side === "YES" ? "#34D399" : "#F87171" }}
-                    >
-                      {position.side}
-                    </span>
-                    <span className="font-mono text-slate-300">{position.stakeSol.toFixed(2)} SOL</span>
-                    <span className="font-mono text-slate-300">{(position.entryOdds * 100).toFixed(1)}%</span>
-                    <span className="font-mono text-slate-300">{(position.markOdds * 100).toFixed(1)}%</span>
-                    <span className="font-mono text-slate-300">
-                      {format(position.submittedAt, "MMM d, yyyy")}
-                    </span>
-                    <span className="font-mono" style={{ color: pnl >= 0 ? "#34D399" : "#F87171" }}>
-                      {formatSigned(pnl)}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
+                    <span>MARKET</span>
+                    <span>SIDE</span>
+                    <span>STAKE</span>
+                    <span>ENTRY</span>
+                    <span>MARK</span>
+                    <span>SUBMITTED</span>
+                    <span>PNL</span>
+                  </div>
+                  {sorted.map((position) => {
+                    const pnl = calculatePositionPnl(position);
+                    return (
+                      <Link
+                        key={position.id}
+                        href={`/market/${position.marketId}`}
+                        className="grid px-4 py-3 text-sm no-underline transition-colors hover:bg-white/5"
+                        style={{
+                          gridTemplateColumns: "1.5fr 0.6fr 0.6fr 0.7fr 0.8fr 0.9fr 0.8fr",
+                          borderBottom: "1px solid rgba(255,255,255,0.04)",
+                          minWidth: "900px",
+                        }}
+                      >
+                        <span className="text-slate-200">{position.marketTitle}</span>
+                        <span
+                          className="font-mono"
+                          style={{ color: position.side === "YES" ? "#34D399" : "#F87171" }}
+                        >
+                          {position.side}
+                        </span>
+                        <span className="font-mono text-slate-300">{position.stakeSol.toFixed(2)} SOL</span>
+                        <span className="font-mono text-slate-300">
+                          {(position.entryOdds * 100).toFixed(1)}%
+                        </span>
+                        <span className="font-mono text-slate-300">
+                          {(position.markOdds * 100).toFixed(1)}%
+                        </span>
+                        <span className="font-mono text-slate-300">
+                          {format(position.submittedAt, "MMM d, yyyy")}
+                        </span>
+                        <span className="font-mono" style={{ color: pnl >= 0 ? "#34D399" : "#F87171" }}>
+                          {formatSigned(pnl)}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </main>
     </>

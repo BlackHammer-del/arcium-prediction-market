@@ -9,7 +9,18 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  const wallet = normalizeWallet(req.query.wallet);
+  const walletInput = Array.isArray(req.query.wallet) ? req.query.wallet[0] : req.query.wallet;
+  if (!walletInput) {
+    res.status(401).json({ error: "Connect wallet to access portfolio." });
+    return;
+  }
+
+  const wallet = normalizeWallet(walletInput);
+  if (wallet === "demo_wallet") {
+    res.status(401).json({ error: "Valid wallet required to access portfolio." });
+    return;
+  }
+
   const portfolio = store.getPortfolio(wallet);
 
   res.status(200).json({

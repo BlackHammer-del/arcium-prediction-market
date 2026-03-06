@@ -1,84 +1,52 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import { useWallet } from "@solana/wallet-adapter-react";
 import Navbar from "../components/Navbar";
 import MarketCard from "../components/MarketCard";
 import {
   DEMO_MARKETS,
-  DEMO_POSITIONS,
   MARKET_CATEGORIES,
-  getPortfolioSummary,
   type DemoMarket,
-  type DemoPosition,
   type MarketCategory,
 } from "../utils/program";
-import {
-  deserializeMarket,
-  deserializePosition,
-  type ApiMarket,
-  type ApiPosition,
-} from "../utils/api";
+import { deserializeMarket, type ApiMarket } from "../utils/api";
 
 type StatusFilter = "all" | "open" | "settled";
 type CategoryFilter = "all" | MarketCategory;
 
-function formatSigned(value: number): string {
-  const rounded = Math.abs(value).toFixed(2);
-  return `${value >= 0 ? "+" : "-"}${rounded} SOL`;
-}
-
 export default function Home() {
-  const { publicKey } = useWallet();
-  const wallet = publicKey?.toBase58() ?? "demo_wallet";
-
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("all");
   const [markets, setMarkets] = useState<DemoMarket[]>(DEMO_MARKETS);
-  const [positions, setPositions] = useState<DemoPosition[]>(DEMO_POSITIONS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadFromApi() {
+    async function loadMarkets() {
       setLoading(true);
       setLoadError(null);
 
       try {
-        const [marketsResponse, portfolioResponse] = await Promise.all([
-          fetch("/api/markets"),
-          fetch(`/api/portfolio?wallet=${encodeURIComponent(wallet)}`),
-        ]);
+        const response = await fetch("/api/markets");
+        const payload = await response.json();
 
-        const marketsPayload = await marketsResponse.json();
-        const portfolioPayload = await portfolioResponse.json();
-
-        if (!marketsResponse.ok) {
-          throw new Error(marketsPayload?.error ?? "Could not load markets.");
-        }
-        if (!portfolioResponse.ok) {
-          throw new Error(portfolioPayload?.error ?? "Could not load portfolio.");
+        if (!response.ok) {
+          throw new Error(payload?.error ?? "Could not load markets.");
         }
 
         if (!cancelled) {
-          const marketItems = Array.isArray(marketsPayload?.markets)
-            ? (marketsPayload.markets as ApiMarket[]).map((item) => deserializeMarket(item))
+          const marketItems = Array.isArray(payload?.markets)
+            ? (payload.markets as ApiMarket[]).map((item) => deserializeMarket(item))
             : DEMO_MARKETS;
-          const positionItems = Array.isArray(portfolioPayload?.positions)
-            ? (portfolioPayload.positions as ApiPosition[]).map((item) => deserializePosition(item))
-            : DEMO_POSITIONS;
-
           setMarkets(marketItems);
-          setPositions(positionItems);
         }
       } catch (caught) {
         if (!cancelled) {
           const message = caught instanceof Error ? caught.message : "Unknown API error.";
           setLoadError(message);
           setMarkets(DEMO_MARKETS);
-          setPositions(DEMO_POSITIONS);
         }
       } finally {
         if (!cancelled) {
@@ -87,11 +55,11 @@ export default function Home() {
       }
     }
 
-    loadFromApi();
+    loadMarkets();
     return () => {
       cancelled = true;
     };
-  }, [wallet]);
+  }, []);
 
   const filteredMarkets = useMemo(
     () =>
@@ -103,8 +71,6 @@ export default function Home() {
       }),
     [markets, statusFilter, categoryFilter]
   );
-
-  const summary = useMemo(() => getPortfolioSummary(positions), [positions]);
 
   return (
     <>
@@ -118,7 +84,7 @@ export default function Home() {
 
       <Navbar />
 
-      <main style={{ minHeight: "100vh", paddingTop: "72px" }}>
+      <main className="pink-grid-bg" style={{ minHeight: "100vh", paddingTop: "72px" }}>
         <div className="mx-auto max-w-6xl px-6 py-12">
           <section className="mb-10">
             <h1 className="font-display text-5xl tracking-widest text-white">ORACLE</h1>
@@ -131,35 +97,11 @@ export default function Home() {
                 CREATE MARKET
               </Link>
               <Link href="/ranking" className="btn-secondary">
-                VIEW RANKING
+                RANKING (WALLET REQUIRED)
               </Link>
               <Link href="/portfolio" className="btn-secondary">
-                OPEN PORTFOLIO
+                PORTFOLIO (WALLET REQUIRED)
               </Link>
-            </div>
-          </section>
-
-          <section className="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">TOTAL STAKED</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.totalStaked.toFixed(2)} SOL</p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">REALIZED PNL</p>
-              <p
-                className="mt-2 font-mono text-xl"
-                style={{ color: summary.realizedPnl >= 0 ? "#34D399" : "#F87171" }}
-              >
-                {formatSigned(summary.realizedPnl)}
-              </p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">WIN RATE</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.winRate.toFixed(1)}%</p>
-            </div>
-            <div className="card p-5">
-              <p className="font-mono text-xs text-slate-500">OPEN POSITIONS</p>
-              <p className="mt-2 font-mono text-xl text-white">{summary.openCount}</p>
             </div>
           </section>
 
