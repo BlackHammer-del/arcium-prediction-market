@@ -77,7 +77,7 @@ export default function PortfolioPage() {
   return (
     <>
       <Head>
-        <title>Portfolio | Oracle Nexus</title>
+        <title>Portfolio | Oracle</title>
       </Head>
       <Navbar />
       <main style={{ minHeight: "100vh", paddingTop: "72px" }}>

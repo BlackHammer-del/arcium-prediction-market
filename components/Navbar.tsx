@@ -1,4 +1,4 @@
-﻿import React from "react";
+import React from "react";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
@@ -7,58 +7,60 @@ export default function Navbar() {
   const { connected, publicKey } = useWallet();
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4"
-         style={{ background: "rgba(3,3,8,0.85)", backdropFilter: "blur(12px)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-      
-      {/* Logo */}
-      <Link href="/" className="flex items-center gap-3 no-underline">
-        <div className="relative w-8 h-8">
-          <div className="absolute inset-0 rounded-lg"
-               style={{ background: "linear-gradient(135deg, #6B3FA0, #22D3EE)", opacity: 0.9 }} />
-          <div className="absolute inset-0 flex items-center justify-center text-white font-display text-lg">
-            Î¨
-          </div>
-        </div>
-        <div>
-          <span className="font-display text-xl tracking-widest text-white">ORACLE</span>
-          <span className="font-display text-xl tracking-widest" style={{ color: "#C084FC" }}>NEXUS</span>
-        </div>
-      </Link>
+    <nav
+      className="fixed left-0 right-0 top-0 z-50"
+      style={{
+        background: "rgba(3,3,8,0.9)",
+        borderBottom: "1px solid rgba(255,255,255,0.08)",
+      }}
+    >
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
+        <Link href="/" className="no-underline">
+          <span className="font-display text-2xl tracking-widest text-white">ORACLE</span>
+        </Link>
 
-      {/* Nav links */}
-      <div className="hidden md:flex items-center gap-8">
-        <Link href="/" className="font-mono text-xs tracking-widest text-slate-400 hover:text-white transition-colors">
-          MARKETS
-        </Link>
-        <Link href="/portfolio" className="font-mono text-xs tracking-widest text-slate-400 hover:text-white transition-colors">
-          PORTFOLIO
-        </Link>
-        <Link href="/create" className="font-mono text-xs tracking-widest text-slate-400 hover:text-white transition-colors">
-          CREATE
-        </Link>
-        <Link href="/how-it-works" className="font-mono text-xs tracking-widest text-slate-400 hover:text-white transition-colors">
-          HOW IT WORKS
-        </Link>
-      </div>
+        <div className="hidden items-center gap-6 md:flex">
+          <Link href="/" className="font-mono text-xs tracking-widest text-slate-300 hover:text-white">
+            MARKETS
+          </Link>
+          <Link
+            href="/ranking"
+            className="font-mono text-xs tracking-widest text-slate-300 hover:text-white"
+          >
+            RANKING
+          </Link>
+          <Link
+            href="/portfolio"
+            className="font-mono text-xs tracking-widest text-slate-300 hover:text-white"
+          >
+            PORTFOLIO
+          </Link>
+          <Link
+            href="/create"
+            className="font-mono text-xs tracking-widest text-slate-300 hover:text-white"
+          >
+            CREATE
+          </Link>
+        </div>
 
-      {/* Wallet + status */}
-      <div className="flex items-center gap-4">
-        {connected && (
-          <div className="encrypted-tag hidden sm:flex">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-            {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
-          </div>
-        )}
-        <WalletMultiButton style={{
-          background: "linear-gradient(135deg, #6B3FA0, #9B6FD0)",
-          borderRadius: "8px",
-          fontFamily: "'JetBrains Mono', monospace",
-          fontSize: "12px",
-          height: "38px",
-          padding: "0 18px",
-        }} />
+        <div className="flex items-center gap-3">
+          {connected ? (
+            <span className="hidden rounded-md border border-white/10 px-2 py-1 font-mono text-xs text-slate-300 sm:inline">
+              {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
+            </span>
+          ) : null}
+          <WalletMultiButton
+            style={{
+              background: "#6B3FA0",
+              borderRadius: "8px",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: "12px",
+              height: "36px",
+              padding: "0 14px",
+            }}
+          />
+        </div>
       </div>
     </nav>
   );
 }
-

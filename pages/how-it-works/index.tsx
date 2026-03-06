@@ -51,7 +51,7 @@ export default function HowItWorks() {
   return (
     <>
       <Head>
-        <title>How It Works Â· Oracle Nexus</title>
+        <title>How It Works | Oracle</title>
       </Head>
       <Navbar />
 
@@ -63,7 +63,7 @@ export default function HowItWorks() {
               HOW IT <span className="gradient-text">WORKS</span>
             </h1>
             <p className="text-slate-400 font-body max-w-xl mx-auto leading-relaxed">
-              Oracle Nexus combines Solana's high-throughput execution with Arcium's
+              Oracle combines Solana's high-throughput execution with Arcium's
               cryptographic privacy layer to create prediction markets where no
               participant's position is ever exposed.
             </p>
@@ -108,7 +108,7 @@ export default function HowItWorks() {
                 <p>Public stakes create herding â€” participants copy popular positions rather than contributing genuine information, distorting prices.</p>
               </div>
               <div>
-                <p className="font-mono text-xs mb-1" style={{ color: "#34D399" }}>âœ“ Oracle Nexus with Arcium</p>
+                <p className="font-mono text-xs mb-1" style={{ color: "#34D399" }}>Oracle with Arcium</p>
                 <p>Encrypted stakes force genuine belief-based positions. No one can herd on hidden information. Outcomes aggregate true wisdom of the crowd.</p>
               </div>
             </div>

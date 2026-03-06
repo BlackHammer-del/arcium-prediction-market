@@ -71,7 +71,7 @@ export default function CreateMarket() {
   return (
     <>
       <Head>
-        <title>Create Market | Oracle Nexus</title>
+        <title>Create Market | Oracle</title>
       </Head>
       <Navbar />
 

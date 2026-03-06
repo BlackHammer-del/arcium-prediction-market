@@ -1,7 +1,7 @@
 ﻿[package]
 name = "prediction-market"
 version = "0.1.0"
-description = "Oracle Nexus private prediction market powered by Arcium MPC on Solana"
+description = "Oracle private prediction market powered by Arcium MPC on Solana"
 edition = "2021"
 
 [lib]

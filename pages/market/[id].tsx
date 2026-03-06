@@ -191,7 +191,7 @@ export default function MarketPage() {
   return (
     <>
       <Head>
-        <title>{market.title} | Oracle Nexus</title>
+        <title>{market.title} | Oracle</title>
       </Head>
       <Navbar />
 

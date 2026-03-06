@@ -1,28 +1,28 @@
-﻿# ðŸ”’ Oracle Nexus â€” Private Prediction Markets on Solana Ã— Arcium
+# 🔒 Oracle — Private Prediction Markets on Solana × Arcium
 
-> **Arcium RTG Bounty Submission** â€” Prediction/Opinion Markets track
+> **Arcium RTG Bounty Submission** — Prediction/Opinion Markets track
 
-Prediction markets aggregate collective intelligence â€” but only when participants reveal their genuine beliefs. On traditional platforms, **public stakes create herding**: users copy popular positions rather than contributing independent analysis, distorting prices and defeating the entire purpose.
+Prediction markets aggregate collective intelligence — but only when participants reveal their genuine beliefs. On traditional platforms, **public stakes create herding**: users copy popular positions rather than contributing independent analysis, distorting prices and defeating the entire purpose.
 
-**Oracle Nexus** solves this with Arcium's Multi-Party Computation (MPC). Stakes, votes, and resolution inputs remain **fully encrypted on-chain** until settlement. Outcomes are revealed honestly, restoring incentive-compatible participation.
+**Oracle** solves this with Arcium's Multi-Party Computation (MPC). Stakes, votes, and resolution inputs remain **fully encrypted on-chain** until settlement. Outcomes are revealed honestly, restoring incentive-compatible participation.
 
 ---
 
-## ðŸŽ¯ What This Project Does
+## 🎯 What This Project Does
 
-Oracle Nexus is a fully functional decentralised prediction market where:
+Oracle is a fully functional decentralised prediction market where:
 
-| Feature | Traditional Market | Oracle Nexus (Arcium) |
+| Feature | Traditional Market | Oracle (Arcium) |
 |---|---|---|
-| Stake amount visible | âœ… Anyone can see | âŒ Encrypted (ElGamal) |
-| Vote direction visible | âœ… YES/NO on-chain | âŒ Ciphertext on-chain |
-| Real-time odds | âœ… Manipulatable | âŒ Hidden until settlement |
-| Resolution input | âœ… Oracle can be front-run | âŒ Encrypted until MPC tally |
+| Stake amount visible | ✅ Anyone can see | ❌ Encrypted (ElGamal) |
+| Vote direction visible | ✅ YES/NO on-chain | ❌ Ciphertext on-chain |
+| Real-time odds | ✅ Manipulatable | ❌ Hidden until settlement |
+| Resolution input | ✅ Oracle can be front-run | ❌ Encrypted until MPC tally |
 | Settlement | Simple summation | Threshold MPC decryption |
 
 ---
 
-## ðŸ” How Arcium Is Used
+## 🔐 How Arcium Is Used
 
 ### 1. Client-Side Encryption (Before Submission)
 
@@ -32,8 +32,8 @@ When a user places a position, their browser:
 2. Generates fresh randomness `r`
 3. Encrypts stake amount `m` as an **ElGamal ciphertext**:
    ```
-   C1 = r Â· G          (ephemeral public key)
-   C2 = m Â· G + r Â· PK  (blinded message)
+   C1 = r · G          (ephemeral public key)
+   C2 = m · G + r · PK  (blinded message)
    ```
 4. Encrypts YES/NO choice with the same scheme
 5. Only the ciphertexts `(C1, C2)` are submitted to Solana
@@ -45,19 +45,19 @@ When a user places a position, their browser:
 Arcium nodes monitor the Solana program for `PositionSubmitted` events. As positions arrive, they homomorphically accumulate ciphertexts:
 
 ```
-Î£(C1) = Î£(r_i) Â· G
-Î£(C2) = Î£(m_i) Â· G + Î£(r_i) Â· PK
+Σ(C1) = Σ(r_i) · G
+Σ(C2) = Σ(m_i) · G + Σ(r_i) · PK
 ```
 
-This is valid because ElGamal encryption over Ristretto255 is **additively homomorphic** â€” encrypted values can be summed without decryption.
+This is valid because ElGamal encryption over Ristretto255 is **additively homomorphic** — encrypted values can be summed without decryption.
 
 ### 3. Threshold MPC Decryption (At Settlement)
 
 After `resolution_timestamp`, anyone triggers `request_tally()`. The Arcium cluster:
 
-1. Each of `n` MPC nodes holds a **key share** `sk_i` such that `Î£ sk_i = sk`
-2. A threshold `t` of nodes compute partial decryptions: `D_i = sk_i Â· C1`
-3. The partial decryptions are combined: `m Â· G = C2 - Î£ D_i`
+1. Each of `n` MPC nodes holds a **key share** `sk_i` such that `Σ sk_i = sk`
+2. A threshold `t` of nodes compute partial decryptions: `D_i = sk_i · C1`
+3. The partial decryptions are combined: `m · G = C2 - Σ D_i`
 4. The result is posted on-chain via the Arcium relayer
 
 **No single node can decrypt alone.** Quorum is required. This prevents the market operator, Arcium employees, or any single party from learning the tally before settlement.
@@ -68,78 +68,78 @@ After market settlement, individual positions are also decrypted by the Arcium c
 
 ---
 
-## ðŸ—ï¸ Architecture
+## 🏗️ Architecture
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                    SOLANA ON-CHAIN                       â”‚
-â”‚                                                         â”‚
-â”‚  MarketRegistry â”€â”€â–º Market â”€â”€â–º Position (per user)      â”‚
-â”‚       â”‚               â”‚             â”‚                   â”‚
-â”‚  arcium_cluster    vault PDA    encrypted_stake (C1,C2) â”‚
-â”‚                               encrypted_choice (C1,C2)  â”‚
-â”‚                                                         â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                           â”‚ Events / CPI
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚                 ARCIUM MXE CLUSTER                       â”‚
-â”‚                                                         â”‚
-â”‚  Node 1 (sk_1) â”€â”                                       â”‚
-â”‚  Node 2 (sk_2) â”€â”¼â”€â”€â–º Threshold MPC â”€â”€â–º Decrypt Result  â”‚
-â”‚  Node N (sk_N) â”€â”˜                          â”‚            â”‚
-â”‚                                            â–¼            â”‚
-â”‚                                      Arcium Relayer     â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                           â”‚ settle_market() CPI
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚              SETTLEMENT ON-CHAIN                         â”‚
-â”‚  revealed_yes_stake, revealed_no_stake, outcome          â”‚
-â”‚  â†’ Winners claim proportional payouts from vault         â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-```
-
----
-
-## ðŸ“ Project Structure
-
-```
-oracle-nexus/
-â”œâ”€â”€ programs/
-â”‚   â””â”€â”€ prediction-market/
-â”‚       â””â”€â”€ src/
-â”‚           â””â”€â”€ lib.rs          # Anchor smart contract (Solana program)
-â”œâ”€â”€ app/
-â”‚   â”œâ”€â”€ components/
-â”‚   â”‚   â”œâ”€â”€ Navbar.tsx
-â”‚   â”‚   â””â”€â”€ MarketCard.tsx
-â”‚   â”œâ”€â”€ pages/
-â”‚   â”‚   â”œâ”€â”€ index.tsx           # Market listing
-â”‚   â”‚   â”œâ”€â”€ market/[id].tsx     # Market detail + position submission
-â”‚   â”‚   â”œâ”€â”€ create/index.tsx    # Create new market
-â”‚   â”‚   â””â”€â”€ how-it-works/      # Arcium flow explainer
-â”‚   â”œâ”€â”€ utils/
-â”‚   â”‚   â”œâ”€â”€ arcium.ts           # Client-side encryption utilities
-â”‚   â”‚   â””â”€â”€ program.ts          # Anchor client helpers & PDAs
-â”‚   â””â”€â”€ styles/globals.css
-â”œâ”€â”€ tests/
-â”‚   â””â”€â”€ prediction-market.ts   # Anchor integration tests
-â”œâ”€â”€ scripts/
-â”‚   â””â”€â”€ setup.sh               # One-command full setup
-â”œâ”€â”€ Anchor.toml
-â””â”€â”€ README.md
+┌─────────────────────────────────────────────────────────┐
+│                    SOLANA ON-CHAIN                       │
+│                                                         │
+│  MarketRegistry ──► Market ──► Position (per user)      │
+│       │               │             │                   │
+│  arcium_cluster    vault PDA    encrypted_stake (C1,C2) │
+│                               encrypted_choice (C1,C2)  │
+│                                                         │
+└──────────────────────────┬──────────────────────────────┘
+                           │ Events / CPI
+┌──────────────────────────▼──────────────────────────────┐
+│                 ARCIUM MXE CLUSTER                       │
+│                                                         │
+│  Node 1 (sk_1) ─┐                                       │
+│  Node 2 (sk_2) ─┼──► Threshold MPC ──► Decrypt Result  │
+│  Node N (sk_N) ─┘                          │            │
+│                                            ▼            │
+│                                      Arcium Relayer     │
+└──────────────────────────┬──────────────────────────────┘
+                           │ settle_market() CPI
+┌──────────────────────────▼──────────────────────────────┐
+│              SETTLEMENT ON-CHAIN                         │
+│  revealed_yes_stake, revealed_no_stake, outcome          │
+│  → Winners claim proportional payouts from vault         │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## ðŸš€ Quick Start (From Scratch)
+## 📁 Project Structure
+
+```
+oracle/
+├── programs/
+│   └── prediction-market/
+│       └── src/
+│           └── lib.rs          # Anchor smart contract (Solana program)
+├── app/
+│   ├── components/
+│   │   ├── Navbar.tsx
+│   │   └── MarketCard.tsx
+│   ├── pages/
+│   │   ├── index.tsx           # Market listing
+│   │   ├── market/[id].tsx     # Market detail + position submission
+│   │   ├── create/index.tsx    # Create new market
+│   │   └── how-it-works/      # Arcium flow explainer
+│   ├── utils/
+│   │   ├── arcium.ts           # Client-side encryption utilities
+│   │   └── program.ts          # Anchor client helpers & PDAs
+│   └── styles/globals.css
+├── tests/
+│   └── prediction-market.ts   # Anchor integration tests
+├── scripts/
+│   └── setup.sh               # One-command full setup
+├── Anchor.toml
+└── README.md
+```
+
+---
+
+## 🚀 Quick Start (From Scratch)
 
 ### Prerequisites
 
 The setup script installs everything automatically:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/oracle-nexus
-cd oracle-nexus
+git clone https://github.com/YOUR_USERNAME/oracle
+cd oracle
 chmod +x scripts/setup.sh
 ./scripts/setup.sh
 ```
@@ -179,12 +179,12 @@ npm run dev
 ### Connect Phantom Wallet
 
 1. Install [Phantom](https://phantom.app)
-2. Settings â†’ Developer Settings â†’ **Change Network â†’ Devnet**
+2. Settings → Developer Settings → **Change Network → Devnet**
 3. Visit `http://localhost:3000` and connect
 
 ---
 
-## ðŸ§ª Running Tests
+## 🧪 Running Tests
 
 ```bash
 anchor test
@@ -198,7 +198,7 @@ Tests cover:
 
 ---
 
-## ðŸ”‘ Key Program Instructions
+## 🔑 Key Program Instructions
 
 | Instruction | Description |
 |---|---|
@@ -212,27 +212,28 @@ Tests cover:
 
 ---
 
-## ðŸŒ Privacy Benefits Summary
+## 🌐 Privacy Benefits Summary
 
-1. **No Herding** â€” Users can't see others' positions, eliminating copycat behaviour
-2. **No Frontrunning** â€” Resolution inputs are encrypted; oracles cannot manipulate settlement
-3. **No Market Manipulation** â€” Whale positions are invisible; no one can trigger liquidations by tracking large stakes
-4. **Genuine Price Discovery** â€” Odds are hidden until settlement, forcing participants to submit based on true beliefs
-5. **Non-custodial** â€” All funds in Solana PDAs; only the program logic can release them
-
----
-
-## ðŸ“„ License
-
-MIT â€” Open Source
+1. **No Herding** — Users can't see others' positions, eliminating copycat behaviour
+2. **No Frontrunning** — Resolution inputs are encrypted; oracles cannot manipulate settlement
+3. **No Market Manipulation** — Whale positions are invisible; no one can trigger liquidations by tracking large stakes
+4. **Genuine Price Discovery** — Odds are hidden until settlement, forcing participants to submit based on true beliefs
+5. **Non-custodial** — All funds in Solana PDAs; only the program logic can release them
 
 ---
 
-## ðŸ™ Credits
+## 📄 License
 
-- [Arcium](https://arcium.com) â€” MPC privacy layer
-- [Anchor](https://www.anchor-lang.com) â€” Solana smart contract framework
-- [Solana](https://solana.com) â€” High-throughput blockchain
+MIT — Open Source
 
-*Built for the Arcium RTG Bounty â€” Prediction Markets track*
+---
+
+## 🙏 Credits
+
+- [Arcium](https://arcium.com) — MPC privacy layer
+- [Anchor](https://www.anchor-lang.com) — Solana smart contract framework
+- [Solana](https://solana.com) — High-throughput blockchain
+
+*Built for the Arcium RTG Bounty — Prediction Markets track*
+
 

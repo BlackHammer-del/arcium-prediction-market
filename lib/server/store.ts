@@ -1,5 +1,6 @@
 import { randomBytes } from "crypto";
 import {
+  calculatePositionPnl,
   DEMO_MARKETS,
   DEMO_POSITIONS,
   getPortfolioSummary,
@@ -11,6 +12,12 @@ import {
 
 const DEMO_WALLET = "demo_wallet";
 const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const SEEDED_WALLETS = [
+  "9xQeWvG816bUx9EPfM5f6K4M6R4xM3aMcMBXNte1qNbf",
+  "Vote111111111111111111111111111111111111111",
+  "Stake11111111111111111111111111111111111111",
+  "SysvarRent111111111111111111111111111111111",
+];
 
 interface StoredPosition extends DemoPosition {
   wallet: string;
@@ -49,7 +56,19 @@ export interface SubmitPositionInput {
   encryptedChoice?: { c1: number[]; c2: number[] };
 }
 
-export class OracleNexusStore {
+export interface LeaderboardEntry {
+  wallet: string;
+  label: string;
+  points: number;
+  correctPredictions: number;
+  settledPredictions: number;
+  totalPredictions: number;
+  accuracy: number;
+  volumeSol: number;
+  realizedPnl: number;
+}
+
+export class OracleStore {
   private markets: DemoMarket[];
   private positions: StoredPosition[];
   private nextMarketId: number;
@@ -57,9 +76,9 @@ export class OracleNexusStore {
 
   constructor() {
     this.markets = DEMO_MARKETS.map(cloneMarket);
-    this.positions = DEMO_POSITIONS.map((position) => ({
+    this.positions = DEMO_POSITIONS.map((position, index) => ({
       ...clonePosition(position),
-      wallet: DEMO_WALLET,
+      wallet: SEEDED_WALLETS[index % SEEDED_WALLETS.length] ?? DEMO_WALLET,
     }));
     this.nextMarketId = this.markets.reduce((max, market) => Math.max(max, market.id), -1) + 1;
     this.nextPositionId =
@@ -115,7 +134,7 @@ export class OracleNexusStore {
         {
           id: `m${id}_open`,
           label: "Positioning window",
-          note: "Encrypted stakes and votes accepted by Oracle Nexus.",
+          note: "Encrypted stakes and votes accepted by Oracle.",
           timestamp: now,
           status: "active",
         },
@@ -207,6 +226,55 @@ export class OracleNexusStore {
     };
   }
 
+  getLeaderboard(limit = 50): LeaderboardEntry[] {
+    const scoreboard = new Map<string, LeaderboardEntry>();
+
+    for (const position of this.positions) {
+      const existing = scoreboard.get(position.wallet) ?? {
+        wallet: position.wallet,
+        label: prettyWallet(position.wallet),
+        points: 0,
+        correctPredictions: 0,
+        settledPredictions: 0,
+        totalPredictions: 0,
+        accuracy: 0,
+        volumeSol: 0,
+        realizedPnl: 0,
+      };
+
+      existing.totalPredictions += 1;
+      existing.volumeSol += position.stakeSol;
+
+      if (position.status !== "Open") {
+        existing.settledPredictions += 1;
+        existing.realizedPnl += calculatePositionPnl(position);
+      }
+
+      if (position.status === "Won") {
+        existing.correctPredictions += 1;
+        existing.points += 1;
+      }
+
+      scoreboard.set(position.wallet, existing);
+    }
+
+    const entries = Array.from(scoreboard.values())
+      .map((entry) => ({
+        ...entry,
+        accuracy:
+          entry.settledPredictions > 0
+            ? (entry.correctPredictions / entry.settledPredictions) * 100
+            : 0,
+      }))
+      .sort((left, right) => {
+        if (right.points !== left.points) return right.points - left.points;
+        if (right.accuracy !== left.accuracy) return right.accuracy - left.accuracy;
+        return right.volumeSol - left.volumeSol;
+      });
+
+    return entries.slice(0, Math.max(1, limit));
+  }
+
   private estimateEntryOdds(marketId: number, side: "YES" | "NO"): number {
     const marketPositions = this.positions.filter((position) => position.marketId === marketId);
     if (marketPositions.length === 0) return 0.5;
@@ -239,6 +307,11 @@ function truncateWallet(wallet: string): string {
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
 }
 
+function prettyWallet(wallet: string): string {
+  if (wallet === DEMO_WALLET) return "Demo Trader";
+  return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
@@ -263,10 +336,10 @@ function clonePosition(position: DemoPosition): DemoPosition {
 }
 
 type GlobalWithStore = typeof globalThis & {
-  __oracleNexusStore?: OracleNexusStore;
+  __oracleStore?: OracleStore;
 };
 
 const globalWithStore = globalThis as GlobalWithStore;
 
 export const store =
-  globalWithStore.__oracleNexusStore ?? (globalWithStore.__oracleNexusStore = new OracleNexusStore());
+  globalWithStore.__oracleStore ?? (globalWithStore.__oracleStore = new OracleStore());
