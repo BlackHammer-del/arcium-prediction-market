@@ -75,7 +75,7 @@ export default function CreateMarket() {
       </Head>
       <Navbar />
 
-      <main style={{ minHeight: "100vh", paddingTop: "72px" }}>
+      <main className="pink-grid-bg" style={{ minHeight: "100vh", paddingTop: "72px" }}>
         <div className="mx-auto max-w-2xl px-6 py-12">
           <button
             onClick={() => router.push("/")}

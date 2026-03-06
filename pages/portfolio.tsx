@@ -87,7 +87,7 @@ export default function PortfolioPage() {
         <title>Portfolio | Oracle</title>
       </Head>
       <Navbar />
-      <main style={{ minHeight: "100vh", paddingTop: "72px" }}>
+      <main className="pink-grid-bg" style={{ minHeight: "100vh", paddingTop: "72px" }}>
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
             <div>

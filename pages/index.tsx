@@ -96,11 +96,8 @@ export default function Home() {
               <Link href="/create" className="btn-primary">
                 CREATE MARKET
               </Link>
-              <Link href="/ranking" className="btn-secondary">
-                RANKING (WALLET REQUIRED)
-              </Link>
               <Link href="/portfolio" className="btn-secondary">
-                PORTFOLIO (WALLET REQUIRED)
+                PORTFOLIO
               </Link>
             </div>
           </section>

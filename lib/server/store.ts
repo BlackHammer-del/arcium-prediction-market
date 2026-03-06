@@ -1,6 +1,5 @@
 import { randomBytes } from "crypto";
 import {
-  calculatePositionPnl,
   DEMO_MARKETS,
   DEMO_POSITIONS,
   getPortfolioSummary,
@@ -75,18 +74,6 @@ export interface SubmitPositionInput {
   stakeSol: number;
   encryptedStake?: { c1: number[]; c2: number[] };
   encryptedChoice?: { c1: number[]; c2: number[] };
-}
-
-export interface LeaderboardEntry {
-  wallet: string;
-  label: string;
-  points: number;
-  correctPredictions: number;
-  settledPredictions: number;
-  totalPredictions: number;
-  accuracy: number;
-  volumeSol: number;
-  realizedPnl: number;
 }
 
 export class OracleStore {
@@ -242,8 +229,8 @@ export class OracleStore {
     this.indexer.consumeEvent({
       marketId: market.id,
       type: "POSITION_SUBMITTED",
-      actor: normalizedWallet,
-      details: `${position.side} ${position.stakeSol.toFixed(2)} SOL submitted`,
+      actor: "private-participant",
+      details: "Encrypted position submitted",
       timestamp: now,
       signature: txSig,
     });
@@ -268,55 +255,6 @@ export class OracleStore {
       positions,
       summary: getPortfolioSummary(positions),
     };
-  }
-
-  getLeaderboard(limit = 50): LeaderboardEntry[] {
-    const scoreboard = new Map<string, LeaderboardEntry>();
-
-    for (const position of this.positions) {
-      const existing = scoreboard.get(position.wallet) ?? {
-        wallet: position.wallet,
-        label: prettyWallet(position.wallet),
-        points: 0,
-        correctPredictions: 0,
-        settledPredictions: 0,
-        totalPredictions: 0,
-        accuracy: 0,
-        volumeSol: 0,
-        realizedPnl: 0,
-      };
-
-      existing.totalPredictions += 1;
-      existing.volumeSol += position.stakeSol;
-
-      if (position.status !== "Open") {
-        existing.settledPredictions += 1;
-        existing.realizedPnl += calculatePositionPnl(position);
-      }
-
-      if (position.status === "Won") {
-        existing.correctPredictions += 1;
-        existing.points += 1;
-      }
-
-      scoreboard.set(position.wallet, existing);
-    }
-
-    const entries = Array.from(scoreboard.values())
-      .map((entry) => ({
-        ...entry,
-        accuracy:
-          entry.settledPredictions > 0
-            ? (entry.correctPredictions / entry.settledPredictions) * 100
-            : 0,
-      }))
-      .sort((left, right) => {
-        if (right.points !== left.points) return right.points - left.points;
-        if (right.accuracy !== left.accuracy) return right.accuracy - left.accuracy;
-        return right.volumeSol - left.volumeSol;
-      });
-
-    return entries.slice(0, Math.max(1, limit));
   }
 
   getMarketProbabilityHistory(marketId: number, limit = 64): ProbabilityHistoryPoint[] {
@@ -472,8 +410,8 @@ export class OracleStore {
       seedEvents.push({
         marketId: position.marketId,
         type: "POSITION_SUBMITTED",
-        actor: position.wallet,
-        details: `${position.side} ${position.stakeSol.toFixed(2)} SOL submitted`,
+        actor: "private-participant",
+        details: "Encrypted position submitted",
         timestamp: position.submittedAt,
       });
     }
@@ -575,11 +513,6 @@ export function normalizeWallet(wallet: string | string[] | undefined): string {
 
 function truncateWallet(wallet: string): string {
   if (wallet === DEMO_WALLET) return "demo wallet";
-  return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
-}
-
-function prettyWallet(wallet: string): string {
-  if (wallet === DEMO_WALLET) return "Demo Trader";
   return `${wallet.slice(0, 4)}...${wallet.slice(-4)}`;
 }
 

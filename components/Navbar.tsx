@@ -15,19 +15,20 @@ export default function Navbar() {
       }}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
-        <Link href="/" className="no-underline">
+        <Link href="/" className="flex items-center gap-2 no-underline">
+          <img
+            src="/oracle-logo.svg"
+            alt="Oracle logo"
+            width={28}
+            height={28}
+            style={{ borderRadius: "6px" }}
+          />
           <span className="font-display text-2xl tracking-widest text-white">ORACLE</span>
         </Link>
 
         <div className="hidden items-center gap-6 md:flex">
           <Link href="/" className="font-mono text-xs tracking-widest text-slate-300 hover:text-white">
             MARKETS
-          </Link>
-          <Link
-            href="/ranking"
-            className="font-mono text-xs tracking-widest text-slate-300 hover:text-white"
-          >
-            RANKING
           </Link>
           <Link
             href="/portfolio"

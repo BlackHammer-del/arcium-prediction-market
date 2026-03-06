@@ -331,7 +331,7 @@ export default function MarketPage() {
       </Head>
       <Navbar />
 
-      <main style={{ minHeight: "100vh", paddingTop: "72px" }}>
+      <main className="pink-grid-bg" style={{ minHeight: "100vh", paddingTop: "72px" }}>
         <div className="mx-auto grid max-w-6xl gap-6 px-6 py-12 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <button
