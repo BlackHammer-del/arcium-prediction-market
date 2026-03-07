@@ -21,15 +21,24 @@ export default function CreateMarket() {
   const [step, setStep] = useState<"idle" | "submitting" | "done" | "error">("idle");
   const [error, setError] = useState<string | null>(null);
 
+  const parsedRules = rulesInput
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(0, 8);
+  const hasMinimumRules = parsedRules.length >= 2;
+  const hasFallbackRule = parsedRules.some((rule) =>
+    /(fallback|secondary|backup)/i.test(rule)
+  );
+
   async function handleCreate() {
     if (!title || !description || !resolutionDate || !resolutionSource) return;
 
     setError(null);
-
-    const rules = rulesInput
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    if (!hasMinimumRules) {
+      setError("Add at least 2 clear settlement rules before creating this market.");
+      return;
+    }
 
     try {
       await ensureWalletUnlocked(wallet, "create a market");
@@ -44,7 +53,7 @@ export default function CreateMarket() {
           category,
           resolutionTimestamp: new Date(`${resolutionDate}T00:00:00.000Z`).toISOString(),
           resolutionSource,
-          rules,
+          rules: parsedRules,
           creatorWallet: publicKey?.toBase58(),
         }),
       });
@@ -70,7 +79,8 @@ export default function CreateMarket() {
     title.trim().length > 0 &&
     description.trim().length > 0 &&
     resolutionDate.trim().length > 0 &&
-    resolutionSource.trim().length > 0;
+    resolutionSource.trim().length > 0 &&
+    hasMinimumRules;
 
   return (
     <>
@@ -169,14 +179,34 @@ export default function CreateMarket() {
               </div>
 
               <div>
-                <label className="mb-2 block font-mono text-xs text-slate-500">RULES (OPTIONAL)</label>
+                <label className="mb-2 block font-mono text-xs text-slate-500">RULES (REQUIRED)</label>
                 <textarea
                   value={rulesInput}
                   onChange={(event) => setRulesInput(event.target.value)}
-                  placeholder="One rule per line."
-                  rows={3}
+                  placeholder="One enforceable settlement rule per line."
+                  rows={4}
                   className="w-full resize-none rounded-lg border border-white/10 bg-white/5 px-4 py-3 font-body text-sm text-white outline-none"
                 />
+                <p className="mt-1 font-mono text-xs text-slate-500">
+                  {parsedRules.length}/8 rules. Minimum 2 required.
+                </p>
+                <div className="mt-2 space-y-1">
+                  <p className="font-mono text-[11px] text-slate-500">
+                    {hasMinimumRules ? "PASS" : "MISSING"}: minimum rule count
+                  </p>
+                  <p className="font-mono text-[11px] text-slate-500">
+                    {hasFallbackRule ? "PASS" : "RECOMMENDED"}: fallback source rule
+                  </p>
+                </div>
+                {parsedRules.length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {parsedRules.map((rule, index) => (
+                      <li key={`${index}-${rule}`} className="font-mono text-[11px] text-slate-400">
+                        {index + 1}. {rule}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
               </div>
 
               <div>
