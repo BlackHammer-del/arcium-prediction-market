@@ -60,17 +60,61 @@ export interface ApiSettlementDisputeRecord {
   id: string;
   marketId: number;
   submittedBy: string;
+  contestedResolver: string;
   reason: string;
+  settlementStakeAtRiskSol: number;
   status: string;
   createdAt: string;
   updatedAt: string;
+  challengeWindow?: {
+    openedAt: string;
+    deadlineAt: string;
+    closedAt?: string;
+  };
+  slashing?: {
+    slashBps: number;
+    slashAmountSol: number;
+    slashedResolver: string;
+    beneficiary: string;
+    reason: string;
+    appliedAt: string;
+  };
+  invalidResolution?: {
+    reasonCode: string;
+    rationale: string;
+    refundMode: string;
+    decidedAt: string;
+  };
   evidence: ApiDisputeEvidence[];
   resolution?: ApiDisputeResolution;
 }
 
-export interface SettlementDisputeRecord extends Omit<ApiSettlementDisputeRecord, "createdAt" | "updatedAt" | "evidence" | "resolution"> {
+export interface SettlementDisputeRecord
+  extends Omit<
+    ApiSettlementDisputeRecord,
+    "createdAt" | "updatedAt" | "challengeWindow" | "slashing" | "invalidResolution" | "evidence" | "resolution"
+  > {
   createdAt: Date;
   updatedAt: Date;
+  challengeWindow?: {
+    openedAt: Date;
+    deadlineAt: Date;
+    closedAt?: Date;
+  };
+  slashing?: {
+    slashBps: number;
+    slashAmountSol: number;
+    slashedResolver: string;
+    beneficiary: string;
+    reason: string;
+    appliedAt: Date;
+  };
+  invalidResolution?: {
+    reasonCode: string;
+    rationale: string;
+    refundMode: string;
+    decidedAt: Date;
+  };
   evidence: Array<Omit<ApiDisputeEvidence, "createdAt"> & { createdAt: Date }>;
   resolution?: Omit<ApiDisputeResolution, "resolvedAt"> & { resolvedAt: Date };
 }
@@ -136,6 +180,27 @@ export function deserializeSettlementDispute(
       ...item,
       createdAt: new Date(item.createdAt),
     })),
+    challengeWindow: dispute.challengeWindow
+      ? {
+          openedAt: new Date(dispute.challengeWindow.openedAt),
+          deadlineAt: new Date(dispute.challengeWindow.deadlineAt),
+          closedAt: dispute.challengeWindow.closedAt
+            ? new Date(dispute.challengeWindow.closedAt)
+            : undefined,
+        }
+      : undefined,
+    slashing: dispute.slashing
+      ? {
+          ...dispute.slashing,
+          appliedAt: new Date(dispute.slashing.appliedAt),
+        }
+      : undefined,
+    invalidResolution: dispute.invalidResolution
+      ? {
+          ...dispute.invalidResolution,
+          decidedAt: new Date(dispute.invalidResolution.decidedAt),
+        }
+      : undefined,
     resolution: dispute.resolution
       ? {
           ...dispute.resolution,
