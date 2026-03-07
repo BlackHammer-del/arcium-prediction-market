@@ -92,3 +92,33 @@ test("unit: open disputes expire when challenge window closes", () => {
     /Challenge window has closed/i
   );
 });
+
+test("unit: evidence records include hash, source metadata, and verification status", () => {
+  const engine = new SettlementDisputeEngine();
+  const opened = engine.openDispute({
+    marketId: 21,
+    submittedBy: TEST_WALLET,
+    reason: "Resolution source needs cross-verification against official records.",
+    evidenceSummary: "Official publication snapshot",
+    evidenceUri: "https://www.sec.gov/example-filing",
+    evidenceSourceType: "OfficialRecord",
+    now: new Date("2026-03-07T09:00:00.000Z"),
+  });
+
+  const evidence = opened.evidence[0];
+  assert.equal(Boolean(evidence), true);
+  assert.equal(evidence.sourceType, "OfficialRecord");
+  assert.equal(evidence.sourceDomain, "www.sec.gov");
+  assert.equal(evidence.verificationStatus, "Verified");
+  assert.equal(evidence.evidenceHash.length, 64);
+
+  const updated = engine.addEvidence({
+    disputeId: opened.id,
+    submittedBy: TEST_WALLET,
+    summary: "Non-https source should be rejected",
+    uri: "http://example.com/non-secure-feed",
+    sourceType: "NewsArticle",
+  });
+  const latest = updated.evidence[1];
+  assert.equal(latest.verificationStatus, "Rejected");
+});
