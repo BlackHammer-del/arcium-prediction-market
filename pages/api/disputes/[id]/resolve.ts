@@ -1,8 +1,18 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { normalizeWallet, store } from "../../../../lib/server/store";
-import type { DisputeOutcome } from "../../../../lib/server/services/dispute-engine";
+import type {
+  DisputeOutcome,
+  InvalidMarketReasonCode,
+} from "../../../../lib/server/services/dispute-engine";
 
 const OUTCOMES: DisputeOutcome[] = ["MarketInvalid", "SettlementUpheld", "MarketCancelled"];
+const INVALID_REASON_CODES: InvalidMarketReasonCode[] = [
+  "INSUFFICIENT_RESOLUTION_DATA",
+  "AMBIGUOUS_MARKET_RULES",
+  "ORACLE_DATA_MISMATCH",
+  "SETTLEMENT_MANIPULATION",
+  "FORCE_MAJEURE_EVENT",
+];
 
 function parseDisputeId(value: string | string[] | undefined): string {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -12,6 +22,19 @@ function parseDisputeId(value: string | string[] | undefined): string {
 function parseOutcome(value: unknown): DisputeOutcome | null {
   if (typeof value !== "string") return null;
   return OUTCOMES.includes(value as DisputeOutcome) ? (value as DisputeOutcome) : null;
+}
+
+function parseInvalidReasonCode(value: unknown): InvalidMarketReasonCode | undefined {
+  if (typeof value !== "string") return undefined;
+  return INVALID_REASON_CODES.includes(value as InvalidMarketReasonCode)
+    ? (value as InvalidMarketReasonCode)
+    : undefined;
+}
+
+function parseSlashBps(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  return Math.max(50, Math.min(2_000, Math.round(value)));
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,6 +47,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const disputeId = parseDisputeId(req.query.id);
   const resolvedBy = normalizeWallet(req.body?.wallet);
   const outcome = parseOutcome(req.body?.outcome);
+  const invalidReasonCode = parseInvalidReasonCode(req.body?.invalidReasonCode);
+  const slashBps = parseSlashBps(req.body?.slashBps);
   const resolutionNote =
     typeof req.body?.resolutionNote === "string" ? req.body.resolutionNote.trim() : "";
 
@@ -46,6 +71,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       resolvedBy,
       outcome,
       resolutionNote,
+      invalidReasonCode,
+      slashBps,
     });
 
     res.status(200).json({
@@ -53,6 +80,23 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         ...dispute,
         createdAt: dispute.createdAt.toISOString(),
         updatedAt: dispute.updatedAt.toISOString(),
+        challengeWindow: {
+          openedAt: dispute.challengeWindow.openedAt.toISOString(),
+          deadlineAt: dispute.challengeWindow.deadlineAt.toISOString(),
+          closedAt: dispute.challengeWindow.closedAt?.toISOString(),
+        },
+        slashing: dispute.slashing
+          ? {
+              ...dispute.slashing,
+              appliedAt: dispute.slashing.appliedAt.toISOString(),
+            }
+          : undefined,
+        invalidResolution: dispute.invalidResolution
+          ? {
+              ...dispute.invalidResolution,
+              decidedAt: dispute.invalidResolution.decidedAt.toISOString(),
+            }
+          : undefined,
         evidence: dispute.evidence.map((item) => ({
           ...item,
           createdAt: item.createdAt.toISOString(),
