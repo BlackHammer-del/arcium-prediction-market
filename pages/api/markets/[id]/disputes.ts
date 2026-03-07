@@ -1,10 +1,26 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { normalizeWallet, store } from "../../../../lib/server/store";
+import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
+
+const EVIDENCE_SOURCE_TYPES: EvidenceSourceType[] = [
+  "OfficialRecord",
+  "MarketDataAPI",
+  "NewsArticle",
+  "OnChainEvent",
+  "Other",
+];
 
 function parseMarketId(value: string | string[] | undefined): number {
   const raw = Array.isArray(value) ? value[0] : value;
   if (!raw) return Number.NaN;
   return Number.parseInt(raw, 10);
+}
+
+function parseEvidenceSourceType(value: unknown): EvidenceSourceType | undefined {
+  if (typeof value !== "string") return undefined;
+  return EVIDENCE_SOURCE_TYPES.includes(value as EvidenceSourceType)
+    ? (value as EvidenceSourceType)
+    : undefined;
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -58,9 +74,18 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     const evidenceSummary =
       typeof req.body?.evidenceSummary === "string" ? req.body.evidenceSummary.trim() : "";
     const evidenceUri = typeof req.body?.evidenceUri === "string" ? req.body.evidenceUri.trim() : "";
+    const evidenceSourceDomain =
+      typeof req.body?.evidenceSourceDomain === "string"
+        ? req.body.evidenceSourceDomain.trim()
+        : "";
+    const evidenceSourceType = parseEvidenceSourceType(req.body?.evidenceSourceType);
 
     if (!reason || reason.length < 12) {
       res.status(400).json({ error: "Reason must be at least 12 characters." });
+      return;
+    }
+    if (evidenceUri && !/^https?:\/\//i.test(evidenceUri)) {
+      res.status(400).json({ error: "Evidence URI must start with http:// or https://." });
       return;
     }
 
@@ -71,6 +96,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         reason,
         evidenceSummary: evidenceSummary || undefined,
         evidenceUri: evidenceUri || undefined,
+        evidenceSourceDomain: evidenceSourceDomain || undefined,
+        evidenceSourceType: evidenceSourceType ?? "Other",
       });
 
       res.status(201).json({
