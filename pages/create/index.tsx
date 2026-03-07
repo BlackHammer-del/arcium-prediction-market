@@ -5,9 +5,11 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import Navbar from "../../components/Navbar";
 import { MARKET_CATEGORIES, type MarketCategory } from "../../utils/program";
+import { ensureWalletUnlocked } from "../../utils/wallet-guard";
 
 export default function CreateMarket() {
-  const { connected, publicKey } = useWallet();
+  const wallet = useWallet();
+  const { connected, publicKey } = wallet;
   const router = useRouter();
 
   const [title, setTitle] = useState("");
@@ -23,7 +25,6 @@ export default function CreateMarket() {
     if (!title || !description || !resolutionDate || !resolutionSource) return;
 
     setError(null);
-    setStep("submitting");
 
     const rules = rulesInput
       .split("\n")
@@ -31,6 +32,9 @@ export default function CreateMarket() {
       .filter((line) => line.length > 0);
 
     try {
+      await ensureWalletUnlocked(wallet, "create a market");
+      setStep("submitting");
+
       const response = await fetch("/api/markets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
