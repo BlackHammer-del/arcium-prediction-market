@@ -15,9 +15,10 @@ pub const REGISTRY_SEED: &[u8] = b"registry";
 pub const MIN_STAKE: u64 = 1_000_000;  // Minimum bet amount (1 million lamports).
 pub const MAX_TITLE_LEN: usize = 128;
 pub const MAX_DESC_LEN: usize = 512;
+pub const ORACLE_VOTE_THRESHOLD: u8 = 3; // [PHASE 2] Number of oracles needed to settle.
 
 // Memory space allocation for Solana accounts.
-pub const REGISTRY_SPACE: usize = 8 + 128;
+pub const REGISTRY_SPACE: usize = 8 + 256;
 pub const MARKET_SPACE: usize = 8 + 4096;
 pub const POSITION_SPACE: usize = 8 + 256;
 
@@ -41,12 +42,12 @@ pub struct ZkStakeProof {
     pub amount: u64,
 }
 
-/// The Main Registry: Stores global settings like the Trusted Oracle's ID.
+/// The Main Registry: Stores global settings.
 #[account]
 pub struct MarketRegistry {
     pub authority: Pubkey,
     pub arcium_cluster: Pubkey,
-    pub oracle_pubkey: Pubkey, // [PHASE 2] The ID of our Trusted Data Source.
+    pub oracle_keys: [Pubkey; 5], // [PHASE 2] List of 5 Trusted Oracles.
     pub total_markets: u64,
     pub bump: u8,
 }
@@ -63,6 +64,9 @@ pub struct Market {
     pub status: MarketStatus,
     pub outcome: Option<bool>,
     pub vault: Pubkey,
+    pub yes_votes: u8, // [PHASE 2] Count of oracles voting "Yes".
+    pub no_votes: u8,  // [PHASE 2] Count of oracles voting "No".
+    pub voters: [Pubkey; 5], // [PHASE 2] List of oracles who already voted.
     pub bump: u8,
     pub vault_bump: u8,
 }
@@ -90,6 +94,7 @@ pub enum PredictionMarketError {
     #[msg("ZK Proof invalid")] InvalidZkProof,
     #[msg("Stake too low")] StakeTooLow,
     #[msg("Unauthorized Oracle")] UnauthorizedOracle,
+    #[msg("Oracle already voted")] AlreadyVoted,
 }
 
 #[program]
@@ -97,11 +102,11 @@ pub mod prediction_market {
     use super::*;
 
     /// Sets up the protocol for the first time.
-    pub fn initialize(ctx: Context<Initialize>, arcium_cluster: Pubkey, oracle_pubkey: Pubkey) -> Result<()> {
+    pub fn initialize(ctx: Context<Initialize>, arcium_cluster: Pubkey, oracles: [Pubkey; 5]) -> Result<()> {
         let registry = &mut ctx.accounts.registry;
         registry.authority = ctx.accounts.authority.key();
         registry.arcium_cluster = arcium_cluster;
-        registry.oracle_pubkey = oracle_pubkey;
+        registry.oracle_keys = oracles;
         registry.bump = ctx.bumps.registry;
         Ok(())
     }
@@ -114,6 +119,9 @@ pub mod prediction_market {
         market.description = write_fixed_bytes::<512>(&description);
         market.resolution_timestamp = resolution_timestamp;
         market.status = MarketStatus::Open;
+        market.yes_votes = 0;
+        market.no_votes = 0;
+        market.voters = [Pubkey::default(); 5];
         market.bump = ctx.bumps.market;
         market.vault_bump = ctx.bumps.vault;
         Ok(())
@@ -125,14 +133,12 @@ pub mod prediction_market {
         require!(market.status == MarketStatus::Open, PredictionMarketError::MarketNotOpen);
         require!(zk_proof.amount >= MIN_STAKE, PredictionMarketError::StakeTooLow);
 
-        // Verify the ZK-Proof: This ensures the user isn't lying about their money.
         let expected_commitment = hashv(&[
             &zk_proof.amount.to_le_bytes(),
             &zk_proof.blinding_factor,
         ]).to_bytes();
         require!(zk_proof.commitment == expected_commitment, PredictionMarketError::InvalidZkProof);
 
-        // Securely transfer the tokens to the vault.
         let cpi_ctx = CpiContext::new(
             ctx.accounts.token_program.to_account_info(),
             Transfer {
@@ -143,7 +149,6 @@ pub mod prediction_market {
         );
         token::transfer(cpi_ctx, zk_proof.amount)?;
 
-        // Save the bet details privately.
         let position = &mut ctx.accounts.position;
         position.owner = ctx.accounts.user.key();
         position.market = market.key();
@@ -154,16 +159,43 @@ pub mod prediction_market {
         Ok(())
     }
 
-    /// [PHASE 2 UPGRADE] - The Trusted Oracle decides the winner.
-    pub fn settle_market(ctx: Context<SettleMarket>, yes_won: bool) -> Result<()> {
+    /// [PHASE 2 UPGRADE] - 3-of-5 Decentralized Settlement.
+    /// Multiple oracles must vote on the outcome. Once 3 agree, the market settles.
+    pub fn vote_on_outcome(ctx: Context<SettleMarket>, yes_won: bool) -> Result<()> {
         let registry = &ctx.accounts.registry;
         let market = &mut ctx.accounts.market;
 
-        // Verify that only our Trusted Oracle can settle this market.
-        require!(ctx.accounts.oracle.key() == registry.oracle_pubkey, PredictionMarketError::UnauthorizedOracle);
+        // 1. Verify that the person voting is one of our 5 Trusted Oracles.
+        let oracle_key = ctx.accounts.oracle.key();
+        let is_valid_oracle = registry.oracle_keys.iter().any(|&k| k == oracle_key);
+        require!(is_valid_oracle, PredictionMarketError::UnauthorizedOracle);
 
-        market.outcome = Some(yes_won);
-        market.status = MarketStatus::Settled;
+        // 2. Ensure this oracle hasn't already voted for this market.
+        require!(!market.voters.iter().any(|&k| k == oracle_key), PredictionMarketError::AlreadyVoted);
+
+        // 3. Record the vote and the voter's ID.
+        for voter in market.voters.iter_mut() {
+            if *voter == Pubkey::default() {
+                *voter = oracle_key;
+                break;
+            }
+        }
+
+        if yes_won {
+            market.yes_votes += 1;
+        } else {
+            market.no_votes += 1;
+        }
+
+        // 4. If either side reaches 3 votes, the market is officially settled.
+        if market.yes_votes >= ORACLE_VOTE_THRESHOLD {
+            market.outcome = Some(true);
+            market.status = MarketStatus::Settled;
+        } else if market.no_votes >= ORACLE_VOTE_THRESHOLD {
+            market.outcome = Some(false);
+            market.status = MarketStatus::Settled;
+        }
+
         Ok(())
     }
 }
