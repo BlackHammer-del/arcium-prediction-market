@@ -1,5 +1,6 @@
-import { PublicKey } from "@solana/web3.js";
+﻿import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
+import { xorBytesWasm } from "./stealth-wasm";
 
 const DEFAULT_CLUSTER_ID = "11111111111111111111111111111111";
 
@@ -21,11 +22,19 @@ export interface MarketState {
   title: string;
   description: string;
   resolutionTimestamp: Date;
-  status: "Open" | "Resolving" | "Settled" | "Cancelled";
+  status: "Open" | "Resolving" | "SettledPending" | "Settled" | "Cancelled" | "Invalid";
   totalParticipants: number;
   outcome?: boolean;
   revealedYesStake?: number;
   revealedNoStake?: number;
+}
+
+export interface EncryptedPositionPayload {
+  encryptedStake: Ciphertext;
+  encryptedChoice: Ciphertext;
+  commitment: string;
+  sealedAt: string;
+  version: "v1";
 }
 
 export const ARCIUM_DEVNET_CLUSTER = parsePublicKey(
@@ -39,30 +48,70 @@ export async function fetchClusterPublicKey(
   return new Uint8Array(32).fill(0x42);
 }
 
-export function encryptStake(
+async function xorBytesStealth(a: Uint8Array, b: Uint8Array): Promise<Uint8Array> {
+  try {
+    return await xorBytesWasm(a, b);
+  } catch {
+    return xorBytes(a, b);
+  }
+}
+
+export async function encryptStake(
   amountLamports: bigint,
   clusterPublicKey: Uint8Array
-): Ciphertext {
+): Promise<Ciphertext> {
   const r = nacl.randomBytes(32);
-  const c1 = xorBytes(r, clusterPublicKey);
-  const c2 = xorBytes(bigintToBytes32(amountLamports), r);
+  const stakeBytes = bigintToBytes32(amountLamports);
+  const c1 = await xorBytesStealth(r, clusterPublicKey);
+  const c2 = await xorBytesStealth(stakeBytes, r);
+  zeroize(stakeBytes);
+  zeroize(r);
   return { c1, c2 };
 }
 
-export function encryptChoice(
+export async function encryptChoice(
   choice: boolean,
   clusterPublicKey: Uint8Array
-): Ciphertext {
+): Promise<Ciphertext> {
   const r = nacl.randomBytes(32);
-  const c1 = xorBytes(r, clusterPublicKey);
   const choiceBytes = new Uint8Array(32);
   choiceBytes[0] = choice ? 1 : 0;
-  const c2 = xorBytes(choiceBytes, r);
+  const c1 = await xorBytesStealth(r, clusterPublicKey);
+  const c2 = await xorBytesStealth(choiceBytes, r);
+  zeroize(choiceBytes);
+  zeroize(r);
   return { c1, c2 };
 }
 
 export function serializeCiphertext(e: Ciphertext): { c1: number[]; c2: number[] } {
   return { c1: Array.from(e.c1), c2: Array.from(e.c2) };
+}
+
+export async function encryptPositionPayload(params: {
+  amountLamports: bigint;
+  choice: boolean;
+  clusterPublicKey: Uint8Array;
+  wallet?: string;
+}): Promise<EncryptedPositionPayload> {
+  const sealedAt = new Date().toISOString();
+  const encryptedStake = await encryptStake(params.amountLamports, params.clusterPublicKey);
+  const encryptedChoice = await encryptChoice(params.choice, params.clusterPublicKey);
+  const commitmentPayload = {
+    version: "v1",
+    sealedAt,
+    wallet: params.wallet ?? "",
+    encryptedStake: serializeCiphertext(encryptedStake),
+    encryptedChoice: serializeCiphertext(encryptedChoice),
+  };
+  const commitment = await sha256Hex(jsonBytes(commitmentPayload));
+
+  return {
+    encryptedStake,
+    encryptedChoice,
+    commitment,
+    sealedAt,
+    version: "v1",
+  };
 }
 
 export function decodeMarketTitle(bytes: number[]): string {
@@ -76,8 +125,10 @@ export function marketStatusLabel(status: MarketState["status"]): string {
   const labels: Record<MarketState["status"], string> = {
     Open: "LIVE",
     Resolving: "RESOLVING",
+    SettledPending: "SETTLEMENT WINDOW",
     Settled: "SETTLED",
     Cancelled: "CANCELLED",
+    Invalid: "INVALID",
   };
   return labels[status];
 }
@@ -105,4 +156,30 @@ function bigintToBytes32(n: bigint): Uint8Array {
     tmp >>= BigInt(8);
   }
   return buf;
+}
+
+function zeroize(bytes: Uint8Array): void {
+  bytes.fill(0);
+}
+
+function jsonBytes(payload: unknown): Uint8Array {
+  const json = JSON.stringify(payload);
+  return new TextEncoder().encode(json);
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  if (typeof window !== "undefined" && window.crypto?.subtle) {
+    const copy = new Uint8Array(bytes);
+    const digest = await window.crypto.subtle.digest("SHA-256", copy.buffer);
+    return bufferToHex(new Uint8Array(digest));
+  }
+
+  const { createHash } = await import("crypto");
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+function bufferToHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }

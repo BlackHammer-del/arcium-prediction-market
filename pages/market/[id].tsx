@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import { useRouter } from "next/router";
@@ -15,8 +15,7 @@ import {
 } from "../../utils/program";
 import {
   ARCIUM_DEVNET_CLUSTER,
-  encryptChoice,
-  encryptStake,
+  encryptPositionPayload,
   fetchClusterPublicKey,
   serializeCiphertext,
 } from "../../utils/arcium";
@@ -54,6 +53,8 @@ function formatSigned(value: number): string {
 function activityLabel(type: string): string {
   const labels: Record<string, string> = {
     MARKET_CREATED: "Market created",
+    POSITION_COMMITTED: "Position committed",
+    POSITION_BATCHED: "Position batched",
     POSITION_SUBMITTED: "Position submitted",
     DISPUTE_OPENED: "Dispute opened",
     DISPUTE_EVIDENCE_ADDED: "Evidence added",
@@ -119,7 +120,9 @@ export default function MarketPage() {
   const wallet = useWallet();
   const { connected, publicKey } = wallet;
   const [choice, setChoice] = useState<"yes" | "no" | null>(null);
-  const [stakeInput, setStakeInput] = useState("");
+  const stakeInputRef = useRef<HTMLInputElement | null>(null);
+  const [hasStake, setHasStake] = useState(false);
+  const [maskStake, setMaskStake] = useState(true);
   const [step, setStep] = useState<StepState>("idle");
   const [txSig, setTxSig] = useState<string | null>(null);
   const [encryptedPreview, setEncryptedPreview] = useState<string | null>(null);
@@ -210,21 +213,28 @@ export default function MarketPage() {
 
   async function handleSubmit() {
     if (!market || !choice || !connected) return;
-    const stakeSOL = Number.parseFloat(stakeInput);
+    const stakeRaw = stakeInputRef.current?.value ?? "";
+    const stakeSOL = Number.parseFloat(stakeRaw);
     if (Number.isNaN(stakeSOL) || stakeSOL <= 0) return;
 
     setError(null);
 
     try {
+      if (stakeInputRef.current) stakeInputRef.current.value = "";
+      setHasStake(false);
       await ensureWalletUnlocked(wallet, "submit an encrypted position");
       setStep("encrypting");
 
       const clusterKey = await fetchClusterPublicKey(ARCIUM_DEVNET_CLUSTER);
       const stakeLamports = BigInt(Math.floor(stakeSOL * 1e9));
-      const encStake = encryptStake(stakeLamports, clusterKey);
-      const encChoice = encryptChoice(choice === "yes", clusterKey);
-      const preview = `stake:0x${toHex(encStake.c1.slice(0, 8))}... choice:0x${toHex(
-        encChoice.c1.slice(0, 4)
+      const sealedPayload = await encryptPositionPayload({
+        amountLamports: stakeLamports,
+        choice: choice === "yes",
+        clusterPublicKey: clusterKey,
+        wallet: publicKey?.toBase58(),
+      });
+      const preview = `commitment:${sealedPayload.commitment.slice(0, 14)}... stake:0x${toHex(
+        sealedPayload.encryptedStake.c1.slice(0, 8)
       )}...`;
       setEncryptedPreview(preview);
 
@@ -235,11 +245,12 @@ export default function MarketPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           marketId: market.id,
-          side: choice.toUpperCase(),
-          stakeSol: stakeSOL,
           wallet: publicKey?.toBase58(),
-          encryptedStake: serializeCiphertext(encStake),
-          encryptedChoice: serializeCiphertext(encChoice),
+          commitment: sealedPayload.commitment,
+          sealedAt: sealedPayload.sealedAt,
+          version: sealedPayload.version,
+          encryptedStake: serializeCiphertext(sealedPayload.encryptedStake),
+          encryptedChoice: serializeCiphertext(sealedPayload.encryptedChoice),
         }),
       });
       const payload = await response.json();
@@ -249,12 +260,19 @@ export default function MarketPage() {
 
       setTxSig(typeof payload?.txSig === "string" ? payload.txSig : null);
       setStep("confirmed");
+      setChoice(null);
       await fetchMarketData();
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Unknown error";
       setError(message);
       setStep("error");
     }
+  }
+
+  function handleStakeInput(event: React.ChangeEvent<HTMLInputElement>) {
+    const value = event.currentTarget.value;
+    const parsed = Number.parseFloat(value);
+    setHasStake(Number.isFinite(parsed) && parsed > 0);
   }
 
   async function handleOpenDispute() {
@@ -477,6 +495,44 @@ export default function MarketPage() {
             </div>
 
             <div className="card mb-6 p-6">
+              <h2 className="mb-4 font-mono text-xs tracking-widest text-violet-300">
+                MPC SETTLEMENT ARTIFACTS
+              </h2>
+              {market.settlementArtifacts ? (
+                <div className="space-y-2 text-xs text-slate-300">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-mono text-slate-500">PROOF URI</span>
+                    <span className="font-mono text-cyan-300">{market.settlementArtifacts.proofUri}</span>
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-mono text-slate-500">PROOF HASH</span>
+                    <span className="font-mono">{market.settlementArtifacts.proofHash.slice(0, 24)}...</span>
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-mono text-slate-500">SETTLEMENT HASH</span>
+                    <span className="font-mono">{market.settlementArtifacts.settlementHash.slice(0, 24)}...</span>
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-mono text-slate-500">PUBLISHED</span>
+                    <span className="font-mono text-slate-400">
+                      {market.settlementArtifacts.publishedAt}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span className="font-mono text-slate-500">VERIFIED BY</span>
+                    <span className="font-mono text-emerald-300">
+                      {market.settlementArtifacts.verifier}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="font-mono text-xs text-slate-500">
+                  Artifacts published once MPC settlement completes.
+                </p>
+              )}
+            </div>
+
+            <div className="card mb-6 p-6">
               <h2 className="mb-4 font-mono text-xs tracking-widest text-violet-300">CLEAR RULES</h2>
               <ul className="space-y-2 text-sm text-slate-300">
                 {market.rules.map((rule, index) => (
@@ -506,6 +562,7 @@ export default function MarketPage() {
               ) : (
                 <div className="space-y-3">
                   {history.map((position) => {
+                    const isEncrypted = position.visibility === "encrypted";
                     const pnl = calculatePositionPnl(position);
                     return (
                       <div
@@ -515,19 +572,28 @@ export default function MarketPage() {
                         <div className="flex items-center gap-3">
                           <span
                             className="font-mono text-xs"
-                            style={{ color: position.side === "YES" ? "#34D399" : "#F87171" }}
+                            style={{
+                              color: isEncrypted
+                                ? "#94A3B8"
+                                : position.side === "YES"
+                                  ? "#34D399"
+                                  : "#F87171",
+                            }}
                           >
-                            {position.side}
+                            {isEncrypted ? "ENCRYPTED" : position.side}
                           </span>
                           <span className="font-mono text-xs text-slate-300">
-                            {position.stakeSol.toFixed(2)} SOL
+                            {isEncrypted ? "PRIVATE" : `${position.stakeSol?.toFixed(2)} SOL`}
                           </span>
                           <span className="font-mono text-xs text-slate-500">
                             {format(position.submittedAt, "MMM d, yyyy")}
                           </span>
                         </div>
-                        <span className="font-mono text-xs" style={{ color: pnl >= 0 ? "#34D399" : "#F87171" }}>
-                          {formatSigned(pnl)}
+                        <span
+                          className="font-mono text-xs"
+                          style={{ color: isEncrypted ? "#94A3B8" : pnl >= 0 ? "#34D399" : "#F87171" }}
+                        >
+                          {isEncrypted ? "—" : formatSigned(pnl)}
                         </span>
                       </div>
                     );
@@ -688,7 +754,7 @@ export default function MarketPage() {
                 ) : step === "confirmed" ? (
                   <div className="py-8 text-center">
                     <p className="mb-2 font-mono text-sm text-emerald-400">
-                      POSITION ENCRYPTED AND SUBMITTED
+                      POSITION ENCRYPTED AND QUEUED
                     </p>
                     {txSig ? (
                       <a
@@ -703,6 +769,23 @@ export default function MarketPage() {
                   </div>
                 ) : (
                   <>
+                    <div className="confidential-panel mb-5">
+                      <div className="confidential-header">
+                        <span>CONFIDENTIAL MODE</span>
+                        <label className="confidential-toggle">
+                          <input
+                            type="checkbox"
+                            checked={maskStake}
+                            onChange={(event) => setMaskStake(event.target.checked)}
+                          />
+                          Mask stake input
+                        </label>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        Bets are encrypted locally with a WASM cipher before they touch the network.
+                        No plaintext stake or side is transmitted or stored.
+                      </p>
+                    </div>
                     <div className="mb-5">
                       <p className="mb-3 font-mono text-xs text-slate-500">YOUR PREDICTION</p>
                       <div className="flex gap-3">
@@ -730,24 +813,24 @@ export default function MarketPage() {
                     <div className="mb-5">
                       <p className="mb-2 font-mono text-xs text-slate-500">STAKE AMOUNT (SOL)</p>
                       <input
-                        type="number"
-                        min="0.001"
-                        step="0.01"
-                        value={stakeInput}
-                        onChange={(event) => setStakeInput(event.target.value)}
-                        className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 font-mono text-sm text-white outline-none"
+                        ref={stakeInputRef}
+                        type={maskStake ? "password" : "text"}
+                        inputMode="decimal"
+                        autoComplete="off"
                         placeholder="0.10"
+                        onChange={handleStakeInput}
+                        className="w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3 font-mono text-sm text-white outline-none"
                       />
                     </div>
 
                     {encryptedPreview ? (
-                      <p className="mb-4 font-mono text-xs text-violet-300">Ciphertext: {encryptedPreview}</p>
+                      <p className="mb-4 font-mono text-xs text-violet-300">Stealth seal: {encryptedPreview}</p>
                     ) : null}
                     {error ? <p className="mb-4 font-mono text-xs text-rose-400">{error}</p> : null}
 
                     <button
                       onClick={handleSubmit}
-                      disabled={!choice || !stakeInput || step === "encrypting" || step === "submitting"}
+                      disabled={!choice || !hasStake || step === "encrypting" || step === "submitting"}
                       className="btn-primary w-full"
                     >
                       {step === "encrypting" && "ENCRYPTING..."}

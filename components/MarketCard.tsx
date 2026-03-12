@@ -19,6 +19,7 @@ interface MarketCardProps {
 const STATUS_COLORS: Record<MarketStatus, string> = {
   Open: "#34D399",
   Resolving: "#C084FC",
+  SettledPending: "#FACC15",
   Settled: "#22D3EE",
   Cancelled: "#94A3B8",
   Invalid: "#F59E0B",
@@ -43,6 +44,7 @@ export default function MarketCard(props: MarketCardProps) {
   const noP = 100 - yesP;
   const isSettled = status === "Settled";
   const isOpen = status === "Open";
+  const statusLabel = status === "SettledPending" ? "SETTLEMENT WINDOW" : status.toUpperCase();
 
   return (
     <Link href={`/market/${id}`} style={{ textDecoration: "none" }}>
@@ -59,7 +61,7 @@ export default function MarketCard(props: MarketCardProps) {
 
         <div className="mb-3 flex items-center justify-between">
           <span className="font-mono text-xs" style={{ color: STATUS_COLORS[status] }}>
-            {status.toUpperCase()}
+            {statusLabel}
           </span>
           <span className="font-mono text-xs text-slate-500">{totalParticipants} participants</span>
         </div>

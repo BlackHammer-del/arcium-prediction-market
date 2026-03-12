@@ -73,6 +73,10 @@ export default function PortfolioPage() {
   }, [connected, wallet]);
 
   const summary = useMemo(() => getPortfolioSummary(positions), [positions]);
+  const hasEncrypted = useMemo(
+    () => positions.some((position) => position.visibility === "encrypted"),
+    [positions]
+  );
   const sorted = useMemo(
     () =>
       [...positions].sort(
@@ -116,9 +120,16 @@ export default function PortfolioPage() {
                 ) : loadError ? (
                   <p className="font-mono text-xs text-amber-300">{loadError}</p>
                 ) : (
-                  <p className="font-mono text-xs text-emerald-300">Wallet-scoped portfolio loaded</p>
+                  <p className="font-mono text-xs text-emerald-300">
+                    Wallet-scoped portfolio loaded
+                  </p>
                 )}
               </div>
+              {hasEncrypted ? (
+                <p className="mb-4 font-mono text-xs text-slate-500">
+                  Encrypted positions are redacted until settlement.
+                </p>
+              ) : null}
 
               <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
                 <div className="card p-5">
@@ -174,6 +185,7 @@ export default function PortfolioPage() {
                     <span>PNL</span>
                   </div>
                   {sorted.map((position) => {
+                    const isEncrypted = position.visibility === "encrypted";
                     const pnl = calculatePositionPnl(position);
                     return (
                       <Link
@@ -189,22 +201,33 @@ export default function PortfolioPage() {
                         <span className="text-slate-200">{position.marketTitle}</span>
                         <span
                           className="font-mono"
-                          style={{ color: position.side === "YES" ? "#34D399" : "#F87171" }}
+                          style={{
+                            color: isEncrypted
+                              ? "#94A3B8"
+                              : position.side === "YES"
+                                ? "#34D399"
+                                : "#F87171",
+                          }}
                         >
-                          {position.side}
-                        </span>
-                        <span className="font-mono text-slate-300">{position.stakeSol.toFixed(2)} SOL</span>
-                        <span className="font-mono text-slate-300">
-                          {(position.entryOdds * 100).toFixed(1)}%
+                          {isEncrypted ? "ENCRYPTED" : position.side}
                         </span>
                         <span className="font-mono text-slate-300">
-                          {(position.markOdds * 100).toFixed(1)}%
+                          {isEncrypted ? "PRIVATE" : `${position.stakeSol?.toFixed(2)} SOL`}
+                        </span>
+                        <span className="font-mono text-slate-300">
+                          {isEncrypted ? "—" : `${((position.entryOdds ?? 0) * 100).toFixed(1)}%`}
+                        </span>
+                        <span className="font-mono text-slate-300">
+                          {isEncrypted ? "—" : `${((position.markOdds ?? 0) * 100).toFixed(1)}%`}
                         </span>
                         <span className="font-mono text-slate-300">
                           {format(position.submittedAt, "MMM d, yyyy")}
                         </span>
-                        <span className="font-mono" style={{ color: pnl >= 0 ? "#34D399" : "#F87171" }}>
-                          {formatSigned(pnl)}
+                        <span
+                          className="font-mono"
+                          style={{ color: isEncrypted ? "#94A3B8" : pnl >= 0 ? "#34D399" : "#F87171" }}
+                        >
+                          {isEncrypted ? "—" : formatSigned(pnl)}
                         </span>
                       </Link>
                     );

@@ -1,4 +1,4 @@
-import { randomBytes } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import {
   DEMO_MARKETS,
   DEMO_POSITIONS,
@@ -7,6 +7,8 @@ import {
   type DemoPosition,
   type MarketCategory,
   type MarketStatus,
+  type PositionSide,
+  type PositionVisibility,
 } from "../../utils/program";
 import {
   SettlementDisputeEngine,
@@ -33,12 +35,30 @@ const SEEDED_WALLETS = [
   "Stake11111111111111111111111111111111111111",
   "SysvarRent111111111111111111111111111111111",
 ];
+const POSITION_BATCH_DELAY_MS = 45_000;
+const POSITION_BATCH_JITTER_MS = 12_000;
 
 interface StoredPosition extends DemoPosition {
   wallet: string;
+  commitment: string;
+  sealedAt: Date;
+  pendingUntil?: Date;
   encryptedStake?: { c1: number[]; c2: number[] };
   encryptedChoice?: { c1: number[]; c2: number[] };
   txSig?: string;
+}
+
+interface TelemetryEvent {
+  marketId: number;
+  timestamp: Date;
+  yesDelta: number;
+  noDelta: number;
+  volumeSol: number;
+  source: PositionVisibility;
+}
+
+interface PendingTelemetryEvent extends TelemetryEvent {
+  releaseAt: Date;
 }
 
 export interface ProbabilityHistoryPoint {
@@ -72,8 +92,8 @@ export interface ListPositionFilters {
 export interface SubmitPositionInput {
   marketId: number;
   wallet: string;
-  side: "YES" | "NO";
-  stakeSol: number;
+  commitment: string;
+  sealedAt: Date;
   encryptedStake?: { c1: number[]; c2: number[] };
   encryptedChoice?: { c1: number[]; c2: number[] };
 }
@@ -82,6 +102,8 @@ export class OracleStore {
   private markets: DemoMarket[];
   private positions: StoredPosition[];
   private probabilityByMarket = new Map<number, ProbabilityHistoryPoint[]>();
+  private telemetryByMarket = new Map<number, TelemetryEvent[]>();
+  private pendingTelemetry: PendingTelemetryEvent[] = [];
   private disputeEngine = new SettlementDisputeEngine();
   private indexer = new SolanaIndexerWorkerService();
   private nextMarketId: number;
@@ -89,10 +111,15 @@ export class OracleStore {
 
   constructor() {
     this.markets = DEMO_MARKETS.map(cloneMarket);
-    this.positions = DEMO_POSITIONS.map((position, index) => ({
-      ...clonePosition(position),
-      wallet: SEEDED_WALLETS[index % SEEDED_WALLETS.length] ?? DEMO_WALLET,
-    }));
+    this.positions = DEMO_POSITIONS.map((position, index) => {
+      const cloned = clonePosition(position);
+      return {
+        ...cloned,
+        wallet: SEEDED_WALLETS[index % SEEDED_WALLETS.length] ?? DEMO_WALLET,
+        commitment: commitmentForSeed(cloned.id, cloned.marketId, cloned.submittedAt),
+        sealedAt: new Date(cloned.submittedAt),
+      };
+    });
     this.nextMarketId = this.markets.reduce((max, market) => Math.max(max, market.id), -1) + 1;
     this.nextPositionId =
       this.positions.reduce((max, position) => Math.max(max, position.id), 1000) + 1;
@@ -102,6 +129,7 @@ export class OracleStore {
 
   // Lists markets with optional filters used by the main discovery page.
   listMarkets(filters: ListMarketFilters = {}): DemoMarket[] {
+    this.flushPendingTelemetry();
     const { status, category, search } = filters;
     const normalizedSearch = search?.trim().toLowerCase();
     return this.markets
@@ -122,6 +150,7 @@ export class OracleStore {
   }
 
   getMarketById(id: number): DemoMarket | null {
+    this.flushPendingTelemetry();
     const market = this.markets.find((item) => item.id === id);
     return market ? cloneMarket(market) : null;
   }
@@ -180,6 +209,7 @@ export class OracleStore {
 
   // Returns positions, optionally narrowed to one market and/or one wallet.
   listPositions(filters: ListPositionFilters = {}): DemoPosition[] {
+    this.flushPendingTelemetry();
     const { marketId, wallet } = filters;
     const normalizedWallet = wallet ? normalizeWallet(wallet) : undefined;
 
@@ -206,24 +236,31 @@ export class OracleStore {
       throw new Error("Market has passed its resolution date.");
     }
 
-    const id = this.nextPositionId++;
     const normalizedWallet = normalizeWallet(input.wallet);
     const now = new Date();
-    const entryOdds = this.estimateEntryOdds(input.marketId, input.side);
-    const markOdds = clamp(entryOdds + (input.side === "YES" ? 0.02 : -0.02), 0.05, 0.95);
+    const id = this.nextPositionId++;
     const txSig = randomBytes(32).toString("hex");
+    const pendingUntil = new Date(
+      now.getTime() +
+        POSITION_BATCH_DELAY_MS +
+        Math.floor(Math.random() * POSITION_BATCH_JITTER_MS)
+    );
 
     const position: StoredPosition = {
       id,
       marketId: market.id,
       marketTitle: market.title,
-      side: input.side,
-      stakeSol: input.stakeSol,
-      entryOdds,
-      markOdds,
+      side: "ENCRYPTED",
+      stakeSol: undefined,
+      entryOdds: undefined,
+      markOdds: undefined,
       status: "Open",
+      visibility: "encrypted",
       submittedAt: now,
       wallet: normalizedWallet,
+      commitment: input.commitment,
+      sealedAt: new Date(input.sealedAt),
+      pendingUntil,
       encryptedStake: input.encryptedStake,
       encryptedChoice: input.encryptedChoice,
       txSig,
@@ -231,12 +268,12 @@ export class OracleStore {
 
     this.positions.unshift(position);
     market.totalParticipants = market.totalParticipants + 1;
-    this.rebuildProbabilityHistory(market.id);
+    this.queueTelemetryFromCommitment(market.id, input.commitment, now, pendingUntil);
     this.indexer.consumeEvent({
       marketId: market.id,
-      type: "POSITION_SUBMITTED",
+      type: "POSITION_COMMITTED",
       actor: "private-participant",
-      details: "Encrypted position submitted",
+      details: "Encrypted position queued for private batch.",
       timestamp: now,
       signature: txSig,
     });
@@ -252,6 +289,7 @@ export class OracleStore {
     positions: DemoPosition[];
     summary: ReturnType<typeof getPortfolioSummary>;
   } {
+    this.flushPendingTelemetry();
     const normalizedWallet = normalizeWallet(wallet);
     const positions = this.positions
       .filter((position) => position.wallet === normalizedWallet)
@@ -266,13 +304,75 @@ export class OracleStore {
 
   // Market timeline chart data for probability/price history visualization.
   getMarketProbabilityHistory(marketId: number, limit = 64): ProbabilityHistoryPoint[] {
+    this.flushPendingTelemetry();
     const points = this.probabilityByMarket.get(marketId) ?? [];
     return points.slice(-Math.max(1, limit)).map(cloneProbabilityPoint);
   }
 
   // Public activity feed for a market (already privacy-redacted).
   getMarketActivity(marketId: number, limit = 50): IndexerEventRecord[] {
+    this.flushPendingTelemetry();
     return this.indexer.listMarketActivity(marketId, limit);
+  }
+
+  private queueTelemetryFromCommitment(
+    marketId: number,
+    commitment: string,
+    timestamp: Date,
+    releaseAt: Date
+  ) {
+    const derived = deriveTelemetryFromCommitment(commitment);
+    const event: PendingTelemetryEvent = {
+      marketId,
+      timestamp,
+      yesDelta: derived.side === "YES" ? derived.volumeSol : 0,
+      noDelta: derived.side === "NO" ? derived.volumeSol : 0,
+      volumeSol: derived.volumeSol,
+      source: "encrypted",
+      releaseAt,
+    };
+    this.pendingTelemetry.push(event);
+  }
+
+  private appendTelemetry(event: TelemetryEvent) {
+    const list = this.telemetryByMarket.get(event.marketId) ?? [];
+    list.push({
+      ...event,
+      timestamp: new Date(event.timestamp),
+    });
+    this.telemetryByMarket.set(event.marketId, list);
+  }
+
+  private flushPendingTelemetry(reference = new Date()) {
+    if (this.pendingTelemetry.length === 0) return;
+    const ready: PendingTelemetryEvent[] = [];
+    const pending: PendingTelemetryEvent[] = [];
+    for (const event of this.pendingTelemetry) {
+      if (event.releaseAt.getTime() <= reference.getTime()) {
+        ready.push(event);
+      } else {
+        pending.push(event);
+      }
+    }
+    this.pendingTelemetry = pending;
+    if (ready.length === 0) return;
+
+    const touchedMarkets = new Set<number>();
+    for (const event of ready) {
+      this.appendTelemetry(event);
+      touchedMarkets.add(event.marketId);
+      this.indexer.consumeEvent({
+        marketId: event.marketId,
+        type: "POSITION_BATCHED",
+        actor: "private-participant",
+        details: "Encrypted position batched into private pool.",
+        timestamp: event.releaseAt,
+      });
+    }
+
+    for (const marketId of touchedMarkets) {
+      this.rebuildProbabilityHistory(marketId);
+    }
   }
 
   // Dispute APIs consume this market-scoped list.
@@ -292,7 +392,7 @@ export class OracleStore {
 
     const settlementStakeAtRiskSol = this.positions
       .filter((position) => position.marketId === input.marketId)
-      .reduce((sum, position) => sum + position.stakeSol, 0);
+      .reduce((sum, position) => sum + (position.stakeSol ?? 0), 0);
 
     const dispute = this.disputeEngine.openDispute({
       ...input,
@@ -432,32 +532,13 @@ export class OracleStore {
     }
   }
 
-  private estimateEntryOdds(marketId: number, side: "YES" | "NO"): number {
-    const marketPositions = this.positions.filter((position) => position.marketId === marketId);
-    if (marketPositions.length === 0) return 0.5;
-
-    const yesStake = marketPositions
-      .filter((position) => position.side === "YES")
-      .reduce((sum, position) => sum + position.stakeSol, 0);
-    const noStake = marketPositions
-      .filter((position) => position.side === "NO")
-      .reduce((sum, position) => sum + position.stakeSol, 0);
-    const total = yesStake + noStake;
-    if (total === 0) return 0.5;
-
-    const impliedYes = yesStake / total;
-    const base = side === "YES" ? impliedYes : 1 - impliedYes;
-    const jitter = ((this.nextPositionId % 5) - 2) * 0.01;
-    return clamp(Number((base + jitter).toFixed(2)), 0.05, 0.95);
-  }
-
   // Seeds startup telemetry so UI pages have immediate chart/activity content.
   private seedIndexerAndTelemetry() {
     const seedEvents: Array<{
       marketId: number;
       type:
         | "MARKET_CREATED"
-        | "POSITION_SUBMITTED"
+        | "POSITION_BATCHED"
         | "MARKET_STATUS_CHANGED";
       actor: string;
       details: string;
@@ -485,11 +566,28 @@ export class OracleStore {
     }
 
     for (const position of this.positions) {
+      const telemetry =
+        position.visibility === "public" && position.side !== "ENCRYPTED"
+          ? {
+              side: position.side,
+              volumeSol: position.stakeSol ?? 0,
+            }
+          : deriveTelemetryFromCommitment(position.commitment);
+
+      this.appendTelemetry({
+        marketId: position.marketId,
+        timestamp: position.submittedAt,
+        yesDelta: telemetry.side === "YES" ? telemetry.volumeSol : 0,
+        noDelta: telemetry.side === "NO" ? telemetry.volumeSol : 0,
+        volumeSol: telemetry.volumeSol,
+        source: position.visibility,
+      });
+
       seedEvents.push({
         marketId: position.marketId,
-        type: "POSITION_SUBMITTED",
+        type: "POSITION_BATCHED",
         actor: "private-participant",
-        details: "Encrypted position submitted",
+        details: "Encrypted position batched",
         timestamp: position.submittedAt,
       });
     }
@@ -510,16 +608,16 @@ export class OracleStore {
     const market = this.markets.find((item) => item.id === marketId);
     if (!market) return;
 
-    const positions = this.positions
-      .filter((position) => position.marketId === marketId)
-      .sort((left, right) => left.submittedAt.getTime() - right.submittedAt.getTime());
+    const events = (this.telemetryByMarket.get(marketId) ?? [])
+      .slice()
+      .sort((left, right) => left.timestamp.getTime() - right.timestamp.getTime());
 
     let yesStake = 0;
     let noStake = 0;
     let totalStake = 0;
 
     const firstTimestamp =
-      positions[0]?.submittedAt ??
+      events[0]?.timestamp ??
       market.timeline[0]?.timestamp ??
       new Date(market.resolutionTimestamp.getTime() - 24 * 60 * 60 * 1000);
     const points: ProbabilityHistoryPoint[] = [
@@ -531,17 +629,14 @@ export class OracleStore {
       },
     ];
 
-    for (const position of positions) {
-      if (position.side === "YES") {
-        yesStake += position.stakeSol;
-      } else {
-        noStake += position.stakeSol;
-      }
-      totalStake += position.stakeSol;
+    for (const event of events) {
+      yesStake += event.yesDelta;
+      noStake += event.noDelta;
+      totalStake += event.volumeSol;
 
       const yesProbability = totalStake === 0 ? 50 : Math.round((yesStake / totalStake) * 100);
       points.push({
-        timestamp: new Date(position.submittedAt),
+        timestamp: new Date(event.timestamp),
         yesProbability,
         noProbability: 100 - yesProbability,
         volumeSol: Number(totalStake.toFixed(2)),
@@ -597,6 +692,22 @@ function truncateWallet(wallet: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function commitmentForSeed(id: number, marketId: number, timestamp: Date): string {
+  return createHash("sha256")
+    .update(`${marketId}:${id}:${timestamp.toISOString()}`)
+    .digest("hex");
+}
+
+function deriveTelemetryFromCommitment(commitment: string): {
+  side: PositionSide;
+  volumeSol: number;
+} {
+  const hash = createHash("sha256").update(commitment).digest();
+  const side: PositionSide = hash[0] % 2 === 0 ? "YES" : "NO";
+  const volumeSol = Number((((hash[1] % 9) + 2) / 10).toFixed(2));
+  return { side, volumeSol };
 }
 
 function cloneMarket(market: DemoMarket): DemoMarket {

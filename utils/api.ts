@@ -150,6 +150,7 @@ export function deserializeMarket(market: ApiMarket): DemoMarket {
 export function deserializePosition(position: ApiPosition): DemoPosition {
   return {
     ...position,
+    visibility: position.visibility ?? "public",
     submittedAt: new Date(position.submittedAt),
     settledAt: position.settledAt ? new Date(position.settledAt) : undefined,
   };

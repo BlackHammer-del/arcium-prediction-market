@@ -187,6 +187,37 @@ body::after {
   letter-spacing: 0.08em;
 }
 
+.confidential-panel {
+  border-radius: 12px;
+  border: 1px solid rgba(192, 132, 252, 0.2);
+  background: rgba(15, 23, 42, 0.35);
+  padding: 12px 14px;
+}
+
+.confidential-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: #c084fc;
+  margin-bottom: 6px;
+}
+
+.confidential-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.confidential-toggle input {
+  accent-color: #c084fc;
+}
+
 @keyframes marquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }

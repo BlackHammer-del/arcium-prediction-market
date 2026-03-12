@@ -20,9 +20,17 @@ export const VAULT_SEED = Buffer.from("vault");
 export const POSITION_SEED = Buffer.from("position");
 export const REGISTRY_SEED = Buffer.from("registry");
 
-export type MarketStatus = "Open" | "Resolving" | "Settled" | "Cancelled" | "Invalid";
+export type MarketStatus =
+  | "Open"
+  | "Resolving"
+  | "SettledPending"
+  | "Settled"
+  | "Cancelled"
+  | "Invalid";
 export type MarketCategory = "Crypto" | "Football" | "Politics" | "Macro" | "Tech";
 export type ResolutionStepStatus = "completed" | "active" | "upcoming";
+export type PositionVisibility = "public" | "encrypted";
+export type PositionSide = "YES" | "NO" | "ENCRYPTED";
 
 export const MARKET_CATEGORIES: MarketCategory[] = [
   "Crypto",
@@ -71,6 +79,14 @@ export interface ResolutionTimelineStep {
   status: ResolutionStepStatus;
 }
 
+export interface SettlementArtifacts {
+  proofUri: string;
+  proofHash: string;
+  settlementHash: string;
+  publishedAt: string;
+  verifier: string;
+}
+
 export interface DemoMarket {
   id: number;
   category: MarketCategory;
@@ -85,17 +101,19 @@ export interface DemoMarket {
   rules: string[];
   resolutionSource: string;
   timeline: ResolutionTimelineStep[];
+  settlementArtifacts?: SettlementArtifacts;
 }
 
 export interface DemoPosition {
   id: number;
   marketId: number;
   marketTitle: string;
-  side: "YES" | "NO";
-  stakeSol: number;
-  entryOdds: number;
-  markOdds: number;
+  side: PositionSide;
+  stakeSol?: number;
+  entryOdds?: number;
+  markOdds?: number;
   status: "Open" | "Won" | "Lost";
+  visibility: PositionVisibility;
   submittedAt: Date;
   settledAt?: Date;
   payoutSol?: number;
@@ -131,16 +149,21 @@ export const RPC_URL =
   process.env.NEXT_PUBLIC_SOLANA_RPC ?? "https://api.devnet.solana.com";
 
 export function calculatePositionPnl(position: DemoPosition): number {
+  if (position.visibility === "encrypted") return 0;
+  const stake = position.stakeSol ?? 0;
+  const entry = position.entryOdds ?? 0;
+  const mark = position.markOdds ?? 0;
   if (position.status === "Open") {
-    return (position.markOdds - position.entryOdds) * position.stakeSol;
+    return (mark - entry) * stake;
   }
-  return (position.payoutSol ?? 0) - position.stakeSol;
+  return (position.payoutSol ?? 0) - stake;
 }
 
 export function getPortfolioSummary(positions: DemoPosition[]) {
-  const open = positions.filter((position) => position.status === "Open");
-  const settled = positions.filter((position) => position.status !== "Open");
-  const winners = positions.filter((position) => position.status === "Won");
+  const visible = positions.filter((position) => position.visibility === "public");
+  const open = visible.filter((position) => position.status === "Open");
+  const settled = visible.filter((position) => position.status !== "Open");
+  const winners = visible.filter((position) => position.status === "Won");
 
   const realizedPnl = settled.reduce(
     (total, position) => total + calculatePositionPnl(position),
@@ -150,7 +173,7 @@ export function getPortfolioSummary(positions: DemoPosition[]) {
     (total, position) => total + calculatePositionPnl(position),
     0
   );
-  const totalStaked = positions.reduce((total, position) => total + position.stakeSol, 0);
+  const totalStaked = visible.reduce((total, position) => total + (position.stakeSol ?? 0), 0);
   const winRate = settled.length === 0 ? 0 : (winners.length / settled.length) * 100;
 
   return {
@@ -322,6 +345,13 @@ export const DEMO_MARKETS: DemoMarket[] = [
         status: "completed",
       },
     ],
+    settlementArtifacts: {
+      proofUri: "ipfs://oracle/settlement-eth-etf-2025",
+      proofHash: "7b1b51cbad3a5b5a6a92e1b9c1b6b8aab3cc0d2e9f5e8a9a1f2d3c4b5a6b7c8d",
+      settlementHash: "9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a19080706",
+      publishedAt: "2026-01-02T14:00:00Z",
+      verifier: "oracle-mpc-relayer",
+    },
   },
   {
     id: 4,
@@ -491,6 +521,7 @@ export const DEMO_POSITIONS: DemoPosition[] = [
     entryOdds: 0.47,
     markOdds: 0.55,
     status: "Open",
+    visibility: "public",
     submittedAt: new Date("2026-03-02T09:45:00Z"),
   },
   {
@@ -502,6 +533,7 @@ export const DEMO_POSITIONS: DemoPosition[] = [
     entryOdds: 0.36,
     markOdds: 0.34,
     status: "Open",
+    visibility: "public",
     submittedAt: new Date("2026-03-01T20:10:00Z"),
   },
   {
@@ -513,6 +545,7 @@ export const DEMO_POSITIONS: DemoPosition[] = [
     entryOdds: 0.52,
     markOdds: 1,
     status: "Won",
+    visibility: "public",
     payoutSol: 5.84,
     submittedAt: new Date("2025-11-06T13:00:00Z"),
     settledAt: new Date("2026-01-02T14:00:00Z"),
@@ -526,6 +559,7 @@ export const DEMO_POSITIONS: DemoPosition[] = [
     entryOdds: 0.48,
     markOdds: 0,
     status: "Lost",
+    visibility: "public",
     payoutSol: 0,
     submittedAt: new Date("2025-10-18T10:05:00Z"),
     settledAt: new Date("2026-01-02T14:00:00Z"),
@@ -539,6 +573,7 @@ export const DEMO_POSITIONS: DemoPosition[] = [
     entryOdds: 0.41,
     markOdds: 0.44,
     status: "Open",
+    visibility: "public",
     submittedAt: new Date("2026-03-03T07:20:00Z"),
   },
 ];

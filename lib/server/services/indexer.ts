@@ -4,6 +4,8 @@ import type { SettlementDisputeRecord } from "./dispute-engine";
 
 export type IndexerEventType =
   | "MARKET_CREATED"
+  | "POSITION_COMMITTED"
+  | "POSITION_BATCHED"
   | "POSITION_SUBMITTED"
   | "DISPUTE_OPENED"
   | "DISPUTE_EVIDENCE_ADDED"

@@ -1,4 +1,4 @@
-import type { NextApiRequest, NextApiResponse } from "next";
+﻿import type { NextApiRequest, NextApiResponse } from "next";
 import { serializePosition } from "../../../utils/api";
 import { normalizeWallet, store } from "../../../lib/server/store";
 
@@ -17,19 +17,6 @@ function parseId(value: string | string[] | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function parseStake(value: unknown): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number.parseFloat(value);
-  return Number.NaN;
-}
-
-function parseSide(value: unknown): "YES" | "NO" | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.toUpperCase();
-  if (normalized === "YES" || normalized === "NO") return normalized;
-  return null;
-}
-
 function parseCipher(value: unknown): CipherPayload | undefined {
   if (!value || typeof value !== "object") return undefined;
   const maybe = value as { c1?: unknown; c2?: unknown };
@@ -38,6 +25,25 @@ function parseCipher(value: unknown): CipherPayload | undefined {
   const c2 = maybe.c2.filter((item): item is number => typeof item === "number").slice(0, 32);
   if (c1.length !== 32 || c2.length !== 32) return undefined;
   return { c1, c2 };
+}
+
+function parseCommitment(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function parseSealedAt(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function parseVersion(value: unknown): "v1" | null {
+  if (value === "v1") return "v1";
+  return null;
 }
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -59,22 +65,31 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       typeof req.body?.marketId === "number"
         ? req.body.marketId
         : Number.parseInt(String(req.body?.marketId), 10);
-    const stakeSol = parseStake(req.body?.stakeSol);
-    const side = parseSide(req.body?.side);
     const wallet = normalizeWallet(req.body?.wallet);
     const encryptedStake = parseCipher(req.body?.encryptedStake);
     const encryptedChoice = parseCipher(req.body?.encryptedChoice);
+    const commitment = parseCommitment(req.body?.commitment);
+    const sealedAt = parseSealedAt(req.body?.sealedAt);
+    const version = parseVersion(req.body?.version);
 
     if (!Number.isFinite(marketId)) {
       res.status(400).json({ error: "A valid market id is required." });
       return;
     }
-    if (!side) {
-      res.status(400).json({ error: "Side must be YES or NO." });
+    if (!commitment) {
+      res.status(400).json({ error: "Commitment hash is required." });
       return;
     }
-    if (!Number.isFinite(stakeSol) || stakeSol <= 0 || stakeSol > 1_000_000) {
-      res.status(400).json({ error: "Stake must be a positive number and below limit." });
+    if (!encryptedStake || !encryptedChoice) {
+      res.status(400).json({ error: "Encrypted stake and choice are required." });
+      return;
+    }
+    if (!sealedAt) {
+      res.status(400).json({ error: "Sealed timestamp is required." });
+      return;
+    }
+    if (!version) {
+      res.status(400).json({ error: "Unsupported payload version." });
       return;
     }
 
@@ -82,8 +97,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       const result = store.submitPosition({
         marketId,
         wallet,
-        side,
-        stakeSol,
+        commitment,
+        sealedAt,
         encryptedStake,
         encryptedChoice,
       });
