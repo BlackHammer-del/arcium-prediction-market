@@ -2,6 +2,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { serializePosition } from "../../../utils/api";
 import { normalizeWallet, store } from "../../../lib/server/store";
 
+// Portfolio API: returns wallet-scoped positions and summary metrics.
+// This endpoint intentionally requires a valid wallet parameter.
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
