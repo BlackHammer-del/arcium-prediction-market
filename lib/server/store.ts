@@ -29,6 +29,7 @@ import {
 // It ties together markets, positions, disputes, and audit/indexer events.
 const DEMO_WALLET = "demo_wallet";
 const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const COMMITMENT_PATTERN = /^[a-f0-9]{64}$/i;
 const SEEDED_WALLETS = [
   "9xQeWvG816bUx9EPfM5f6K4M6R4xM3aMcMBXNte1qNbf",
   "Vote111111111111111111111111111111111111111",
@@ -234,6 +235,9 @@ export class OracleStore {
     }
     if (market.resolutionTimestamp.getTime() <= Date.now()) {
       throw new Error("Market has passed its resolution date.");
+    }
+    if (!COMMITMENT_PATTERN.test(input.commitment)) {
+      throw new Error("Commitment hash must be a 64-character hex string.");
     }
 
     const normalizedWallet = normalizeWallet(input.wallet);
