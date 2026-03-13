@@ -478,14 +478,12 @@ export class OracleStore {
 
   private applyDisputeOutcomeToMarket(market: DemoMarket, outcome: DisputeOutcome) {
     const now = new Date();
+    const normalizedTimeline = finalizeActiveTimeline(market.timeline);
     if (outcome === "MarketInvalid") {
       market.status = "Invalid";
       market.outcome = undefined;
       market.timeline = [
-        ...market.timeline.map((step) => ({
-          ...step,
-          status: step.status === "active" ? "completed" : step.status,
-        })),
+        ...normalizedTimeline,
         {
           id: `m${market.id}_invalid_${now.getTime()}`,
           label: "Invalid market path",
@@ -500,10 +498,7 @@ export class OracleStore {
       market.status = "Cancelled";
       market.outcome = undefined;
       market.timeline = [
-        ...market.timeline.map((step) => ({
-          ...step,
-          status: step.status === "active" ? "completed" : step.status,
-        })),
+        ...normalizedTimeline,
         {
           id: `m${market.id}_cancelled_${now.getTime()}`,
           label: "Market cancelled",
@@ -517,10 +512,7 @@ export class OracleStore {
     if (outcome === "SettlementUpheld" && market.status === "Invalid") {
       market.status = "Settled";
       market.timeline = [
-        ...market.timeline.map((step) => ({
-          ...step,
-          status: step.status === "active" ? "completed" : step.status,
-        })),
+        ...normalizedTimeline,
         {
           id: `m${market.id}_upheld_${now.getTime()}`,
           label: "Settlement upheld",
@@ -708,6 +700,14 @@ function deriveTelemetryFromCommitment(commitment: string): {
   const side: PositionSide = hash[0] % 2 === 0 ? "YES" : "NO";
   const volumeSol = Number((((hash[1] % 9) + 2) / 10).toFixed(2));
   return { side, volumeSol };
+}
+
+// Close any active timeline step before appending terminal events.
+function finalizeActiveTimeline(timeline: DemoMarket["timeline"]): DemoMarket["timeline"] {
+  return timeline.map((step) => ({
+    ...step,
+    status: step.status === "active" ? "completed" : step.status,
+  }));
 }
 
 function cloneMarket(market: DemoMarket): DemoMarket {
