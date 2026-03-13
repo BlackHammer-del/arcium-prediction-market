@@ -45,6 +45,22 @@ export const ARCIUM_DEVNET_CLUSTER = parsePublicKey(
 export async function fetchClusterPublicKey(
   _clusterId: PublicKey
 ): Promise<Uint8Array> {
+  // In production, require an explicit cluster public key to avoid using a mock.
+  const configuredKey = process.env.NEXT_PUBLIC_ARCIUM_CLUSTER_PUBKEY;
+  if (configuredKey) {
+    try {
+      return new PublicKey(configuredKey).toBytes();
+    } catch {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error("Invalid NEXT_PUBLIC_ARCIUM_CLUSTER_PUBKEY.");
+      }
+    }
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Missing NEXT_PUBLIC_ARCIUM_CLUSTER_PUBKEY.");
+  }
+
   return new Uint8Array(32).fill(0x42);
 }
 
