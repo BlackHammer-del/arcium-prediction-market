@@ -46,6 +46,29 @@ export interface IndexerEventInput {
   signature?: string;
 }
 
+export interface IndexerSnapshot {
+  version: 1;
+  currentSlot: number;
+  nextEventId: number;
+  events: SerializedIndexerEvent[];
+  auditLog: SerializedAuditLogRecord[];
+}
+
+interface SerializedIndexerEvent {
+  id: string;
+  slot: number;
+  signature: string;
+  marketId: number;
+  type: IndexerEventType;
+  actor: string;
+  timestamp: string;
+  details: string;
+}
+
+interface SerializedAuditLogRecord extends SerializedIndexerEvent {
+  integrityHash: string;
+}
+
 export class SolanaIndexerWorkerService {
   private events: IndexerEventRecord[] = [];
   private auditLog: AuditLogRecord[] = [];
@@ -109,6 +132,26 @@ export class SolanaIndexerWorkerService {
       settledMarkets,
     };
   }
+
+  snapshot(): IndexerSnapshot {
+    return {
+      version: 1,
+      currentSlot: this.currentSlot,
+      nextEventId: this.nextEventId,
+      events: this.events.map(serializeEventSnapshot),
+      auditLog: this.auditLog.map(serializeAuditSnapshot),
+    };
+  }
+
+  restore(snapshot: IndexerSnapshot): void {
+    if (!snapshot || snapshot.version !== 1) {
+      throw new Error("Unsupported indexer snapshot version.");
+    }
+    this.currentSlot = snapshot.currentSlot;
+    this.nextEventId = snapshot.nextEventId;
+    this.events = snapshot.events.map(deserializeEventSnapshot);
+    this.auditLog = snapshot.auditLog.map(deserializeAuditSnapshot);
+  }
 }
 
 function cloneEvent(event: IndexerEventRecord): IndexerEventRecord {
@@ -122,5 +165,39 @@ function cloneAuditLogRecord(entry: AuditLogRecord): AuditLogRecord {
   return {
     ...entry,
     timestamp: new Date(entry.timestamp),
+  };
+}
+
+function serializeEventSnapshot(event: IndexerEventRecord): SerializedIndexerEvent {
+  return {
+    id: event.id,
+    slot: event.slot,
+    signature: event.signature,
+    marketId: event.marketId,
+    type: event.type,
+    actor: event.actor,
+    timestamp: event.timestamp.toISOString(),
+    details: event.details,
+  };
+}
+
+function serializeAuditSnapshot(entry: AuditLogRecord): SerializedAuditLogRecord {
+  return {
+    ...serializeEventSnapshot(entry),
+    integrityHash: entry.integrityHash,
+  };
+}
+
+function deserializeEventSnapshot(event: SerializedIndexerEvent): IndexerEventRecord {
+  return {
+    ...event,
+    timestamp: new Date(event.timestamp),
+  };
+}
+
+function deserializeAuditSnapshot(entry: SerializedAuditLogRecord): AuditLogRecord {
+  return {
+    ...deserializeEventSnapshot(entry),
+    integrityHash: entry.integrityHash,
   };
 }
