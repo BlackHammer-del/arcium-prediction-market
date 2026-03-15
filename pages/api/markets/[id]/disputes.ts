@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { enforceRateLimit, rateLimitKey, requireJson } from "../../../../lib/server/api-guards";
+import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
 import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
 
@@ -101,6 +101,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         ? req.body.evidenceSourceDomain.trim()
         : "";
     const evidenceSourceType = parseEvidenceSourceType(req.body?.evidenceSourceType);
+    const auth = typeof req.body?.auth === "object" ? req.body.auth : undefined;
 
     if (!reason || reason.length < 12) {
       res.status(400).json({ error: "Reason must be at least 12 characters." });
@@ -113,6 +114,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     // Wallet validation prevents anonymous dispute spam.
     if (!walletRaw || !isValidWalletAddress(wallet)) {
       res.status(401).json({ error: "Valid wallet required to open disputes." });
+      return;
+    }
+    if (
+      !requireWalletAuth(req, res, {
+        wallet,
+        action: "disputes:open",
+        auth,
+      })
+    ) {
       return;
     }
 
