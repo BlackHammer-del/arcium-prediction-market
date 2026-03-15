@@ -159,6 +159,7 @@ export interface SubmitPositionInput {
   wallet: string;
   commitment: string;
   sealedAt: Date;
+  choice: boolean; // [BIG PICTURE ALIGNMENT] - Required by lib.rs
   encryptedStake?: { c1: number[]; c2: number[] };
   encryptedChoice?: { c1: number[]; c2: number[] };
 }
@@ -167,8 +168,8 @@ function migrateSnapshot(snapshot: any): StoreSnapshot {
   let data = { ...snapshot };
   if (data.version === 1) {
     console.log("[oracle-store] Migrating snapshot from v1 to v2...");
-    data.markets = (data.markets || []).map((m: any) => ({ ...m, version: 1 }));
-    data.positions = (data.positions || []).map((p: any) => ({ ...p, version: 1 }));
+    data.markets = (data.markets || []).map((m: any) => ({ ...m, version: 1, yesVotes: 0, noVotes: 0 }));
+    data.positions = (data.positions || []).map((p: any) => ({ ...p, version: 1, choice: p.side === "YES" }));
     data.version = 2;
   }
   return data as StoreSnapshot;
@@ -182,8 +183,8 @@ export class OracleStore {
   private pendingTelemetry: PendingTelemetryEvent[] = [];
   private disputeEngine = new SettlementDisputeEngine();
   private indexer = new SolanaIndexerWorkerService();
-  private nextMarketId: number;
-  private nextPositionId: number;
+  private nextMarketId: number = 0;
+  private nextPositionId: number = 1000;
   private persistencePath?: string;
 
   constructor() {
@@ -198,7 +199,7 @@ export class OracleStore {
   }
 
   private seedDemoData() {
-    this.markets = DEMO_MARKETS.map(m => ({ ...cloneMarket(m), version: 1 }));
+    this.markets = DEMO_MARKETS.map(m => ({ ...cloneMarket(m), version: 1, yesVotes: 0, noVotes: 0 }));
     this.positions = DEMO_POSITIONS.map((position, index) => {
       const cloned = clonePosition(position);
       return {
@@ -329,6 +330,8 @@ export class OracleStore {
       rules: input.rules,
       resolutionSource: input.resolutionSource,
       version: 1,
+      yesVotes: 0,
+      noVotes: 0,
       timeline: [
         { id: `m${id}_created`, label: "Market created", note: `Created by ${truncateWallet(input.creatorWallet)}`, timestamp: now, status: "completed" },
         { id: `m${id}_open`, label: "Positioning window", note: "Encrypted positions accepted.", timestamp: now, status: "active" },
@@ -351,7 +354,7 @@ export class OracleStore {
       id,
       marketId: market.id,
       marketTitle: market.title,
-      side: "ENCRYPTED",
+      side: input.choice ? "YES" : "NO", // Map choice to side
       status: "Open",
       visibility: "encrypted",
       submittedAt: now,
@@ -361,7 +364,8 @@ export class OracleStore {
       encryptedStake: input.encryptedStake,
       encryptedChoice: input.encryptedChoice,
       txSig,
-      version: 1
+      version: 1,
+      choice: input.choice,
     };
     this.positions.unshift(position);
     market.totalParticipants += 1;
