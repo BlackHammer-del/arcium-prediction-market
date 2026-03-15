@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import Navbar from "../../components/Navbar";
 import { MARKET_CATEGORIES, type MarketCategory } from "../../utils/program";
-import { ensureWalletUnlocked } from "../../utils/wallet-guard";
+import { createWalletAuthPayload, ensureWalletUnlocked } from "../../utils/wallet-guard";
 
 // Create page aims to keep market rules explicit and auditable before launch.
 export default function CreateMarket() {
@@ -45,6 +45,7 @@ export default function CreateMarket() {
 
     try {
       await ensureWalletUnlocked(wallet, "create a market");
+      const auth = await createWalletAuthPayload(wallet, "markets:create");
       setStep("submitting");
 
       const response = await fetch("/api/markets", {
@@ -58,6 +59,7 @@ export default function CreateMarket() {
           resolutionSource,
           rules: parsedRules,
           creatorWallet: publicKey?.toBase58(),
+          auth,
         }),
       });
 
