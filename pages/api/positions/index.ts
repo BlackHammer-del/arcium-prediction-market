@@ -1,6 +1,17 @@
 ﻿import type { NextApiRequest, NextApiResponse } from "next";
 import { serializePosition } from "../../../utils/api";
+import { enforceRateLimit, rateLimitKey, requireJson } from "../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../lib/server/store";
+
+const BODY_LIMIT = "64kb";
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: BODY_LIMIT,
+    },
+  },
+};
 
 // Positions API:
 // - GET returns positions (optionally filtered by market or wallet)
@@ -65,6 +76,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === "POST") {
+    if (!requireJson(req, res)) return;
+    if (
+      !enforceRateLimit(req, res, {
+        key: rateLimitKey(req, "positions:submit"),
+        limit: 30,
+        windowMs: 60_000,
+      })
+    ) {
+      return;
+    }
+
     // Create a new encrypted position for a market.
     const marketId =
       typeof req.body?.marketId === "number"
