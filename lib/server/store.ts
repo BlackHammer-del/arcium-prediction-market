@@ -542,7 +542,7 @@ export function normalizeWallet(wallet: string | string[] | undefined): string {
   return WALLET_PATTERN.test(trimmed) ? trimmed : DEMO_WALLET;
 }
 
-function isValidWalletAddress(wallet: string): boolean {
+export function isValidWalletAddress(wallet: string): boolean {
   return WALLET_PATTERN.test(wallet);
 }
 
