@@ -1,9 +1,19 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../../../utils/program";
 import { serializeMarket } from "../../../utils/api";
+import { enforceRateLimit, rateLimitKey, requireJson } from "../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../lib/server/store";
 
 const STATUS_SET = new Set<MarketStatus>(["Open", "Resolving", "Settled", "Cancelled", "Invalid"]);
+const BODY_LIMIT = "64kb";
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: BODY_LIMIT,
+    },
+  },
+};
 
 function parseCategory(raw: string | string[] | undefined): MarketCategory | undefined {
   const value = Array.isArray(raw) ? raw[0] : raw;
@@ -42,6 +52,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === "POST") {
+    if (!requireJson(req, res)) return;
+    if (
+      !enforceRateLimit(req, res, {
+        key: rateLimitKey(req, "markets:create"),
+        limit: 6,
+        windowMs: 60_000,
+      })
+    ) {
+      return;
+    }
+
     const title = typeof req.body?.title === "string" ? req.body.title.trim() : "";
     const description = typeof req.body?.description === "string" ? req.body.description.trim() : "";
     const resolutionSource =
