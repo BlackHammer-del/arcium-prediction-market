@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { enforceRateLimit, rateLimitKey, requireJson } from "../../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
 import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
 
@@ -9,6 +10,15 @@ const EVIDENCE_SOURCE_TYPES: EvidenceSourceType[] = [
   "OnChainEvent",
   "Other",
 ];
+const BODY_LIMIT = "64kb";
+
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: BODY_LIMIT,
+    },
+  },
+};
 
 function parseMarketId(value: string | string[] | undefined): number {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -69,6 +79,17 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === "POST") {
+    if (!requireJson(req, res)) return;
+    if (
+      !enforceRateLimit(req, res, {
+        key: rateLimitKey(req, "disputes:open"),
+        limit: 8,
+        windowMs: 60 * 60 * 1000,
+      })
+    ) {
+      return;
+    }
+
     const walletRaw = typeof req.body?.wallet === "string" ? req.body.wallet.trim() : "";
     const wallet = normalizeWallet(walletRaw);
     const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
@@ -85,8 +106,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       res.status(400).json({ error: "Reason must be at least 12 characters." });
       return;
     }
-    if (evidenceUri && !/^https?:\/\//i.test(evidenceUri)) {
-      res.status(400).json({ error: "Evidence URI must start with http:// or https://." });
+    if (evidenceUri && !/^https:\/\//i.test(evidenceUri)) {
+      res.status(400).json({ error: "Evidence URI must start with https://." });
       return;
     }
     // Wallet validation prevents anonymous dispute spam.
