@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { enforceRateLimit, rateLimitKey, requireJson } from "../../../../lib/server/api-guards";
+import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
 import type {
   DisputeOutcome,
@@ -73,6 +73,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const slashBps = parseSlashBps(req.body?.slashBps);
   const resolutionNote =
     typeof req.body?.resolutionNote === "string" ? req.body.resolutionNote.trim() : "";
+  const auth = typeof req.body?.auth === "object" ? req.body.auth : undefined;
 
   if (!disputeId) {
     res.status(400).json({ error: "Dispute id is required." });
@@ -89,6 +90,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   // Require a valid wallet to resolve disputes.
   if (!walletRaw || !isValidWalletAddress(resolvedBy)) {
     res.status(401).json({ error: "Valid wallet required to resolve disputes." });
+    return;
+  }
+  if (
+    !requireWalletAuth(req, res, {
+      wallet: resolvedBy,
+      action: "disputes:resolve",
+      auth,
+    })
+  ) {
     return;
   }
 
