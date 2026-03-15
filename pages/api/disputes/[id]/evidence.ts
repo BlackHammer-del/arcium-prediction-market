@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { enforceRateLimit, rateLimitKey, requireJson } from "../../../../lib/server/api-guards";
+import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
 import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
 
@@ -58,6 +58,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   const sourceType = parseEvidenceSourceType(req.body?.sourceType);
   const sourceDomain =
     typeof req.body?.sourceDomain === "string" ? req.body.sourceDomain.trim() : "";
+  const auth = typeof req.body?.auth === "object" ? req.body.auth : undefined;
 
   if (!disputeId) {
     res.status(400).json({ error: "Dispute id is required." });
@@ -74,6 +75,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   // Require a valid wallet for evidence submissions.
   if (!walletRaw || !isValidWalletAddress(submittedBy)) {
     res.status(401).json({ error: "Valid wallet required to submit evidence." });
+    return;
+  }
+  if (
+    !requireWalletAuth(req, res, {
+      wallet: submittedBy,
+      action: "disputes:evidence",
+      auth,
+    })
+  ) {
     return;
   }
 
