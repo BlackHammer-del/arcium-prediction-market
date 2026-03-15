@@ -3,6 +3,7 @@ import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "
 import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
 import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
 
+const ALLOWED_EVIDENCE_DOMAINS = ["apnews.com", "reuters.com", "bloomberg.com", "bbc.co.uk", "wsj.com", "nytimes.com", "solscan.io", "explorer.solana.com"];
 const EVIDENCE_SOURCE_TYPES: EvidenceSourceType[] = [
   "OfficialRecord",
   "MarketDataAPI",
@@ -68,6 +69,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     res.status(400).json({ error: "Evidence summary must be at least 8 characters." });
     return;
   }
+    if (uri) { try { const url = new URL(uri); if (!ALLOWED_EVIDENCE_DOMAINS.some(domain => url.hostname === domain || url.hostname.endsWith("." + domain))) { res.status(400).json({ error: "Evidence URI domain not in allow-list." }); return; } } catch { res.status(400).json({ error: "Invalid Evidence URI format." }); return; } }
   if (uri && !/^https:\/\//i.test(uri)) {
     res.status(400).json({ error: "Evidence URI must start with https://." });
     return;

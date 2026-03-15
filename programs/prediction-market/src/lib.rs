@@ -21,6 +21,10 @@ pub const ORACLE_VOTE_THRESHOLD: u8 = 3; // Number of oracles needed to settle.
 pub const DEFAULT_CHALLENGE_WINDOW_SECS: i64 = 24 * 60 * 60;
 pub const BOND_VAULT_SEED: &[u8] = b"bond-vault";
 
+// [ARCHITECT UPGRADE] - Escape Hatch Timeout (7 days)
+// If the market is not settled within 7 days of the resolution time, users can refund.
+pub const LIVENESS_TIMEOUT_SECS: i64 = 7 * 24 * 60 * 60;
+
 // [DATABASE WIZARD OPTIMIZATION] - Optimized account spaces to save Rent SOL.
 pub const REGISTRY_SPACE: usize = 8 + 32 + 32 + (32 * 5) + 8 + 8 + 1; // ~257 bytes
 pub const MARKET_SPACE: usize = 8 + 1200; // ~1060 bytes + padding for new challenge fields
@@ -553,13 +557,19 @@ pub mod prediction_market {
         Ok(())
     }
 
-    /// Refunds a position if the market is cancelled or invalid after dispute resolution.
+    /// [ARCHITECT UPGRADE] - Escape Hatch Refund
+    /// Refunds a position if the market is cancelled, invalid, OR if it has timed out (7 days).
     pub fn refund_position(ctx: Context<RefundPosition>) -> Result<()> {
         let market = &ctx.accounts.market;
         let position = &mut ctx.accounts.position;
+        let clock = Clock::get()?;
 
+        let is_timed_out = clock.unix_timestamp > market.resolution_timestamp.saturating_add(LIVENESS_TIMEOUT_SECS);
+        let is_cancelled = market.status == MarketStatus::Cancelled || market.status == MarketStatus::Invalid;
+
+        // Allow refund if explicitly cancelled/invalid OR if it has been stuck for 7 days.
         require!(
-            (market.status == MarketStatus::Cancelled || market.status == MarketStatus::Invalid) && !market.challenged,
+            (is_cancelled || is_timed_out) && !market.challenged,
             PredictionMarketError::MarketNotSettled
         );
         require!(!position.claimed, PredictionMarketError::AlreadyClaimed);
