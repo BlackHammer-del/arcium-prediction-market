@@ -316,6 +316,21 @@ export class OracleStore {
     return market ? cloneMarket(market) : null;
   }
 
+  // FIXED: Implemented the missing listPositions method called by API routes
+  listPositions(filters: ListPositionFilters = {}): DemoPosition[] {
+    this.flushPendingTelemetry();
+    const { marketId, wallet } = filters;
+    const normalizedWallet = wallet ? normalizeWallet(wallet) : undefined;
+    
+    return this.positions
+      .filter((position) => {
+        if (marketId !== undefined && position.marketId !== marketId) return false;
+        if (normalizedWallet !== undefined && position.wallet !== normalizedWallet) return false;
+        return true;
+      })
+      .map(clonePosition);
+  }
+
   createMarket(input: CreateMarketInput): DemoMarket {
     const id = this.nextMarketId++;
     const now = new Date();
