@@ -86,7 +86,7 @@ pub struct Position {
     pub stake_commitment: [u8; 32],     // SHA-256(amount || nonce)
     pub submitted_at:     i64,
     pub claimed:          bool,
-    pub bump:             dT8,
+    pub bump:             u8,
 }
 
 #[error_code]
