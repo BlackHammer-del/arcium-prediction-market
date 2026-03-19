@@ -1,4 +1,6 @@
 import type { DemoMarket, DemoPosition, ResolutionTimelineStep } from "./program";
+import type { StoredMarket } from "../lib/server/store";
+import type { StoredPosition } from "../lib/server/store";
 
 export interface ApiResolutionTimelineStep
   extends Omit<ResolutionTimelineStep, "timestamp"> {
@@ -10,7 +12,7 @@ export interface ApiMarket extends Omit<DemoMarket, "resolutionTimestamp" | "tim
   timeline: ApiResolutionTimelineStep[];
 }
 
-export interface ApiPosition extends Omit<DemoPosition, "submittedAt" | "settledAt"> {
+export interface ApiPosition extends Omit<DemoPosition, "submittedAt" | "settledAt" | "choice"> {
   submittedAt: string;
   settledAt?: string;
 }
@@ -131,11 +133,56 @@ export function serializeMarket(market: DemoMarket): ApiMarket {
   };
 }
 
+export function serializeStoredMarket(market: StoredMarket): ApiMarket {
+  const parsedTimestamp = new Date(market.resolutionTimestamp);
+  const category = market.category ?? "Crypto";
+  const status = (market.status as DemoMarket["status"]) ?? "Open";
+  const totalParticipants = market.totalParticipants ?? 0;
+  const rules = market.rules ?? [];
+  const resolutionSource = market.resolutionSource ?? "Arcium MPC";
+  return {
+    id: market.id,
+    category,
+    title: market.title,
+    description: market.description,
+    resolutionTimestamp: (isNaN(parsedTimestamp.getTime()) ? new Date() : parsedTimestamp).toISOString(),
+    status,
+    totalParticipants,
+    rules,
+    resolutionSource,
+    outcome: market.outcome,
+    revealedYesStake: market.revealedYesStake,
+    revealedNoStake: market.revealedNoStake,
+    timeline: [],
+  };
+}
+
 export function serializePosition(position: DemoPosition): ApiPosition {
   return {
-    ...position,
+    id: position.id,
+    marketId: position.marketId,
+    marketTitle: position.marketTitle,
+    side: position.side,
+    stakeSol: position.stakeSol,
+    entryOdds: position.entryOdds,
+    markOdds: position.markOdds,
+    status: position.status,
+    visibility: position.visibility,
+    payoutSol: position.payoutSol,
     submittedAt: position.submittedAt.toISOString(),
     settledAt: position.settledAt?.toISOString(),
+  };
+}
+
+export function serializeStoredPosition(position: StoredPosition): ApiPosition {
+  return {
+    id: position.id,
+    marketId: position.marketId,
+    marketTitle: position.marketTitle,
+    side: "ENCRYPTED",
+    status: "Open",
+    visibility: "encrypted",
+    submittedAt: position.submittedAt.toISOString(),
   };
 }
 
@@ -150,7 +197,7 @@ export function deserializeMarket(market: ApiMarket): DemoMarket {
 export function deserializePosition(position: ApiPosition): DemoPosition {
   return {
     ...position,
-    visibility: position.visibility ?? "public",
+    visibility: position.visibility ?? "encrypted",
     submittedAt: new Date(position.submittedAt),
     settledAt: position.settledAt ? new Date(position.settledAt) : undefined,
   };
