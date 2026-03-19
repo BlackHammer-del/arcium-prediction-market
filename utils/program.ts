@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 
-const DEFAULT_PROGRAM_ID = "9xQeWvG816bUx9EPfM5f6K4M6R4xM3aMcMBXNte1qNbf";
+const DEFAULT_PROGRAM_ID = "7krCLEf4n4QnLnaLgJQTkQB7bS72PRxbM2dGZLb3oQto";
 
 function parsePublicKey(value: string | undefined, fallback: string): PublicKey {
   try {
@@ -23,6 +23,7 @@ export const REGISTRY_SEED = Buffer.from("registry");
 export type MarketStatus =
   | "Open"
   | "SettledPending"
+  | "Challenged"
   | "Settled"
   | "Invalid"
   | "Cancelled";
