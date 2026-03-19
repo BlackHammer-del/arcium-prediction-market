@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { serializePosition } from "../../../utils/api";
+import { serializeStoredPosition } from "../../../utils/api";
 import { normalizeWallet, store } from "../../../lib/server/store";
 import { requireWalletAuth } from "../../../lib/server/api-guards";
 
@@ -19,7 +19,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   const wallet = normalizeWallet(walletInput);
-  if (wallet === "demo_wallet") {
+  if (!wallet) {
     res.status(401).json({ error: "Valid wallet required to access portfolio." });
     return;
   }
@@ -40,6 +40,6 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   res.status(200).json({
     wallet,
     summary: portfolio.summary,
-    positions: portfolio.positions.map((position) => serializePosition(position)),
+    positions: portfolio.positions.map((position) => serializeStoredPosition(position)),
   });
 }
