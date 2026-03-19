@@ -1,11 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../../../utils/program";
-import { serializeMarket } from "../../../utils/api";
+import { serializeStoredMarket } from "../../../utils/api";
 import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../lib/server/api-guards";
 import { isValidWalletAddress, normalizeWallet, store } from "../../../lib/server/store";
 
 // [BIG PICTURE ALIGNMENT] - Synced with lib.rs
-const STATUS_SET = new Set<MarketStatus>(["Open", "SettledPending", "Settled", "Invalid", "Cancelled"]);
+const STATUS_SET = new Set<MarketStatus>(["Open", "SettledPending", "Challenged", "Settled", "Invalid", "Cancelled"]);
 
 export const config = {
   api: {
@@ -35,7 +35,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const markets = store
       .listMarkets({ status, category, search })
-      .map((market) => serializeMarket(market));
+      .map((market) => serializeStoredMarket(market));
     res.status(200).json({ markets });
     return;
   }
@@ -53,7 +53,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return;
     }
 
-    if (!isValidWalletAddress(creatorWallet)) {
+    if (!creatorWallet || !isValidWalletAddress(creatorWallet)) {
       res.status(401).json({ error: "Valid wallet required." });
       return;
     }
@@ -70,7 +70,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         rules,
         creatorWallet,
       });
-      res.status(201).json({ market: serializeMarket(market) });
+      res.status(201).json({ market: serializeStoredMarket(market) });
     } catch (err) {
       res.status(409).json({ error: err instanceof Error ? err.message : "Creation failed" });
     }
