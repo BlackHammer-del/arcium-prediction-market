@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../../lib/server/api-guards";
-import { isValidWalletAddress, normalizeWallet, store } from "../../../../lib/server/store";
+import { normalizeWallet, store } from "../../../../lib/server/store";
 import type { EvidenceSourceType } from "../../../../lib/server/services/dispute-engine";
 
 const EVIDENCE_SOURCE_TYPES: EvidenceSourceType[] = [
@@ -112,7 +112,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return;
     }
     // Wallet validation prevents anonymous dispute spam.
-    if (!walletRaw || !isValidWalletAddress(wallet)) {
+    if (!walletRaw || !wallet) {
       res.status(401).json({ error: "Valid wallet required to open disputes." });
       return;
     }
