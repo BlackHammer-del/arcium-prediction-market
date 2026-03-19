@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "crypto";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { promises as fs } from "fs";
 import { dirname, resolve } from "path";
+import { Keypair } from "@solana/web3.js";
 import {
   DEMO_MARKETS,
   getPortfolioSummary,
@@ -33,6 +34,9 @@ const PROJECT_ROOT = process.cwd();
 const DEFAULT_STORE_PATH = resolve(PROJECT_ROOT, "data", "oracle-store.json");
 const SNAPSHOT_DEBOUNCE_MS = 750;
 const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const ADMIN_WALLET_ENV = "ORACLE_ADMIN_WALLET";
+const ADMIN_KEYPAIR_PATH_ENV = "ORACLE_ADMIN_KEYPAIR_PATH";
+const DEFAULT_ADMIN_KEYPAIR_PATH = resolve(PROJECT_ROOT, "data", "oracle-admin-keypair.json");
 let pendingSnapshot: StoreSnapshot | null = null;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let missingPersistenceWarned = false;
@@ -95,6 +99,37 @@ export interface SubmitPositionInput {
   encryptedChoice?: { c1: number[]; c2: number[] };
 }
 
+function resolveAdminAuthority(): string {
+  const explicit = process.env[ADMIN_WALLET_ENV]?.trim();
+  if (explicit && WALLET_PATTERN.test(explicit)) return explicit;
+
+  const configuredPath = process.env[ADMIN_KEYPAIR_PATH_ENV]?.trim();
+  const keypairPath = resolve(configuredPath || DEFAULT_ADMIN_KEYPAIR_PATH);
+
+  try {
+    if (existsSync(keypairPath)) {
+      const secret = JSON.parse(readFileSync(keypairPath, "utf8")) as number[];
+      const keypair = Keypair.fromSecretKey(Uint8Array.from(secret));
+      return keypair.publicKey.toBase58();
+    }
+  } catch (error) {
+    console.warn("[oracle-store] Failed to load admin keypair, generating new one.", error);
+  }
+
+  const keypair = Keypair.generate();
+  try {
+    mkdirSync(dirname(keypairPath), { recursive: true });
+    writeFileSync(keypairPath, JSON.stringify(Array.from(keypair.secretKey)), "utf8");
+  } catch (error) {
+    console.warn("[oracle-store] Failed to persist admin keypair.", error);
+  }
+
+  console.warn(
+    "[oracle-store] Generated new admin keypair. Set ORACLE_ADMIN_WALLET in production for stability."
+  );
+  return keypair.publicKey.toBase58();
+}
+
 export class OracleStore {
   private markets: StoredMarket[] = [];
   private positions: StoredPosition[] = [];
@@ -102,7 +137,7 @@ export class OracleStore {
   private indexer = new SolanaIndexerWorkerService();
   private nextMarketId: number = 0;
   private nextPositionId: number = 1000;
-  private authority: string = "9xQeWvG816bUx9EPfM5f6K4M6R4xM3aMcMBXNte1qNbf"; // Default dev authority
+  private authority: string = resolveAdminAuthority();
   private persistencePath?: string;
 
   constructor() {
