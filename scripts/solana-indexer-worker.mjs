@@ -3,7 +3,6 @@ import fs from "fs/promises";
 import path from "path";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-// [RELIABILITY UPGRADE] - Structured Logging
 function log(level, message, data = {}) {
   const entry = {
     timestamp: new Date().toISOString(),
@@ -15,13 +14,11 @@ function log(level, message, data = {}) {
 }
 
 const rpcUrl = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
-const programId = process.env.PREDICTION_MARKET_PROGRAM_ID ?? "PredMkt1111111111111111111111111111111111111";
+const programId = process.env.PREDICTION_MARKET_PROGRAM_ID ?? "OracleMkt1111111111111111111111111111111111";
 const pollMs = Number.parseInt(process.env.INDEXER_POLL_MS ?? "15000", 10);
 const maxPerPoll = Number.parseInt(process.env.INDEXER_LIMIT ?? "25", 10);
 const stateFile = path.resolve(process.cwd(), "data", "indexer-state.json");
-const auditFile = path.resolve(process.cwd(), "data", "solana-audit-log.ndjson");
 
-// [RELIABILITY UPGRADE] - Use 'finalized' commitment to avoid reorgs
 const connection = new Connection(rpcUrl, "finalized");
 const targetProgram = new PublicKey(programId);
 
@@ -44,12 +41,6 @@ async function saveState() {
   await fs.writeFile(stateFile, data, "utf8");
 }
 
-async function appendAudit(entry) {
-  await fs.mkdir(path.dirname(auditFile), { recursive: true });
-  await fs.appendFile(auditFile, `${JSON.stringify(entry)}\n`, "utf8");
-}
-
-// [RELIABILITY UPGRADE] - Exponential Backoff Retry
 async function withRetry(fn, label, maxRetries = 5) {
   let delay = 1000;
   for (let i = 0; i < maxRetries; i++) {
@@ -85,18 +76,23 @@ async function poll() {
         });
       }, `getParsedTransaction(${item.signature})`);
 
+      if (tx?.meta?.err) continue;
+
+      // [Tier 3] Precision - Identify the instruction and actor
+      const feePayer = tx?.transaction.message.accountKeys[0]?.pubkey.toBase58() ?? "unknown";
+      
       const record = {
-        timestamp: new Date().toISOString(),
+        timestamp: new Date(tx?.blockTime ? tx.blockTime * 1000 : Date.now()).toISOString(),
         signature: item.signature,
         slot: item.slot,
-        status: item.err ? "error" : "confirmed",
         programId: targetProgram.toBase58(),
-        accountKeys: tx?.transaction.message.accountKeys.map((key) => key.pubkey.toBase58()) ?? [],
+        actor: feePayer,
         logMessages: tx?.meta?.logMessages ?? [],
       };
 
-      await appendAudit(record);
-      log("INFO", "Processed transaction", { slot: record.slot, sig: record.signature });
+      // Instead of writing to a local file, in a production app we'd push to an API
+      // For this demo, we'll log it as structured JSON for the supervisor to ingest
+      log("EVENT", "BLOCKCHAIN_TRANSACTION", record);
     }
 
     cursor = signatures[signatures.length - 1]?.signature;
@@ -109,32 +105,27 @@ async function poll() {
 async function main() {
   log("INFO", "Indexer worker starting", { 
     rpc: rpcUrl, 
-    program: targetProgram.toBase58(),
-    pollInterval: pollMs
+    program: targetProgram.toBase58()
   });
 
   await loadState();
-  
-  // Initial poll
   await poll();
 
-  // Schedule regular polling
   const interval = setInterval(() => {
     poll().catch((error) => {
       log("ERROR", "Scheduled poll fatal error", { error: error.message });
     });
   }, pollMs);
 
-  // Graceful shutdown
   process.on("SIGINT", async () => {
     clearInterval(interval);
-    log("INFO", "Shutdown requested, saving state...");
+    log("INFO", "Shutdown requested");
     await saveState();
     process.exit(0);
   });
 }
 
 main().catch((error) => {
-  log("CRITICAL", "Fatal crash", { error: error.message, stack: error.stack });
+  log("CRITICAL", "Fatal crash", { error: error.message });
   process.exit(1);
 });

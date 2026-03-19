@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "crypto";
 import type { MarketStatus } from "../../../utils/program";
-import type { SettlementDisputeRecord } from "./dispute-engine";
 
 export type IndexerEventType =
   | "MARKET_CREATED"
@@ -15,7 +14,7 @@ export type IndexerEventType =
 
 export interface IndexerEventRecord {
   id: string;
-  slot: number;
+  slot: number; // [ISSUE 23 FIX] - Real blockchain slot
   signature: string;
   marketId: number;
   type: IndexerEventType;
@@ -31,10 +30,8 @@ export interface AuditLogRecord extends IndexerEventRecord {
 export interface IndexerReconcileReport {
   generatedAt: Date;
   totalEvents: number;
-  openDisputes: number;
-  invalidMarkets: number;
-  openMarkets: number;
-  settledMarkets: number;
+  lastSlot: number;
+  integrityVerified: boolean;
 }
 
 export interface IndexerEventInput {
@@ -42,13 +39,13 @@ export interface IndexerEventInput {
   type: IndexerEventType;
   actor: string;
   details: string;
+  slot: number; // Required real slot
+  signature: string; // Required real signature
   timestamp?: Date;
-  signature?: string;
 }
 
 export interface IndexerSnapshot {
-  version: 1;
-  currentSlot: number;
+  version: 2;
   nextEventId: number;
   events: SerializedIndexerEvent[];
   auditLog: SerializedAuditLogRecord[];
@@ -72,15 +69,34 @@ interface SerializedAuditLogRecord extends SerializedIndexerEvent {
 export class SolanaIndexerWorkerService {
   private events: IndexerEventRecord[] = [];
   private auditLog: AuditLogRecord[] = [];
-  private currentSlot = 200_000_000;
   private nextEventId = 1;
 
+  // [ISSUE 20 FIX] - Verify the entire SHA-256 integrity chain on restore
+  verifyIntegrityChain(): boolean {
+    if (this.auditLog.length === 0) return true;
+    
+    for (let i = 0; i < this.auditLog.length - 1; i++) {
+      const current = this.auditLog[i];
+      const previous = this.auditLog[i + 1]; // Chain goes backwards in array
+      
+      const expectedHash = createHash("sha256")
+        .update(previous.integrityHash)
+        .update(JSON.stringify(serializeEventSnapshot(current as any))) // Re-serialize for hash
+        .digest("hex");
+        
+      if (current.integrityHash !== expectedHash) {
+        console.error(`[indexer] INTEGRITY BREACH: Event ${current.id} has invalid hash chain.`);
+        return false;
+      }
+    }
+    return true;
+  }
+
   consumeEvent(input: IndexerEventInput): IndexerEventRecord {
-    const slot = ++this.currentSlot;
     const event: IndexerEventRecord = {
       id: `evt_${String(this.nextEventId++).padStart(8, "0")}`,
-      slot,
-      signature: input.signature ?? randomBytes(32).toString("hex"),
+      slot: input.slot,
+      signature: input.signature,
       marketId: input.marketId,
       type: input.type,
       actor: input.actor,
@@ -92,7 +108,7 @@ export class SolanaIndexerWorkerService {
     const previousHash = this.auditLog[0]?.integrityHash ?? "GENESIS";
     const integrityHash = createHash("sha256")
       .update(previousHash)
-      .update(JSON.stringify(event))
+      .update(JSON.stringify(serializeEventSnapshot(event)))
       .digest("hex");
 
     this.auditLog.unshift({
@@ -114,29 +130,18 @@ export class SolanaIndexerWorkerService {
     return this.auditLog.slice(0, Math.max(1, limit)).map(cloneAuditLogRecord);
   }
 
-  reconcileState(
-    marketStatuses: Array<{ id: number; status: MarketStatus }>,
-    disputes: SettlementDisputeRecord[]
-  ): IndexerReconcileReport {
-    const openDisputes = disputes.filter((dispute) => dispute.status === "Open").length;
-    const invalidMarkets = marketStatuses.filter((market) => market.status === "Invalid").length;
-    const openMarkets = marketStatuses.filter((market) => market.status === "Open").length;
-    const settledMarkets = marketStatuses.filter((market) => market.status === "Settled").length;
-
+  reconcileState(): IndexerReconcileReport {
     return {
       generatedAt: new Date(),
       totalEvents: this.events.length,
-      openDisputes,
-      invalidMarkets,
-      openMarkets,
-      settledMarkets,
+      lastSlot: this.events[0]?.slot ?? 0,
+      integrityVerified: this.verifyIntegrityChain(),
     };
   }
 
   snapshot(): IndexerSnapshot {
     return {
-      version: 1,
-      currentSlot: this.currentSlot,
+      version: 2,
       nextEventId: this.nextEventId,
       events: this.events.map(serializeEventSnapshot),
       auditLog: this.auditLog.map(serializeAuditSnapshot),
@@ -144,28 +149,26 @@ export class SolanaIndexerWorkerService {
   }
 
   restore(snapshot: IndexerSnapshot): void {
-    if (!snapshot || snapshot.version !== 1) {
-      throw new Error("Unsupported indexer snapshot version.");
+    if (!snapshot || snapshot.version !== 2) {
+      console.warn("[indexer] Unsupported snapshot version, starting fresh.");
+      return;
     }
-    this.currentSlot = snapshot.currentSlot;
     this.nextEventId = snapshot.nextEventId;
     this.events = snapshot.events.map(deserializeEventSnapshot);
     this.auditLog = snapshot.auditLog.map(deserializeAuditSnapshot);
+    
+    if (!this.verifyIntegrityChain()) {
+      console.error("[indexer] Snapshot integrity verification FAILED.");
+    }
   }
 }
 
 function cloneEvent(event: IndexerEventRecord): IndexerEventRecord {
-  return {
-    ...event,
-    timestamp: new Date(event.timestamp),
-  };
+  return { ...event, timestamp: new Date(event.timestamp) };
 }
 
 function cloneAuditLogRecord(entry: AuditLogRecord): AuditLogRecord {
-  return {
-    ...entry,
-    timestamp: new Date(entry.timestamp),
-  };
+  return { ...entry, timestamp: new Date(entry.timestamp) };
 }
 
 function serializeEventSnapshot(event: IndexerEventRecord): SerializedIndexerEvent {

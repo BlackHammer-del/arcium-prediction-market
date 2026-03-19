@@ -5,6 +5,13 @@ import {
   DEMO_MARKETS,
   getPortfolioSummary,
 } from "../../utils/program";
+import {
+  SolanaIndexerWorkerService,
+  type IndexerSnapshot,
+  type AuditLogRecord,
+  type IndexerReconcileReport,
+  type IndexerEventRecord
+} from "./services/indexer";
 
 // [ISSUE 5 FIX] - Incremented version for new schema
 const CURRENT_STORE_VERSION = 3; 
@@ -47,6 +54,7 @@ export interface StoreSnapshot {
   nextMarketId: number;
   nextPositionId: number;
   authority: string; // The protocol admin wallet
+  indexer: IndexerSnapshot; // [Tier 3] Re-integrated indexer state
 }
 
 export interface SubmitPositionInput {
@@ -62,6 +70,7 @@ export interface SubmitPositionInput {
 export class OracleStore {
   private markets: StoredMarket[] = [];
   private positions: StoredPosition[] = [];
+  private indexer = new SolanaIndexerWorkerService();
   private nextMarketId: number = 0;
   private nextPositionId: number = 1000;
   private authority: string = "9xQeWvG816bUx9EPfM5f6K4M6R4xM3aMcMBXNte1qNbf"; // Default dev authority
@@ -92,6 +101,19 @@ export class OracleStore {
       version: 1
     }));
     this.nextMarketId = this.markets.length;
+    
+    // Seed initial events with placeholder slot
+    for (const m of this.markets) {
+      this.indexer.consumeEvent({
+        marketId: m.id,
+        type: "MARKET_CREATED",
+        actor: "system",
+        details: `Seeded market: ${m.title}`,
+        slot: 0,
+        signature: "GENESIS"
+      });
+    }
+    
     this.persistSnapshot();
   }
 
@@ -104,6 +126,9 @@ export class OracleStore {
     this.nextMarketId = snapshot.nextMarketId;
     this.nextPositionId = snapshot.nextPositionId;
     this.authority = snapshot.authority || this.authority;
+    if (snapshot.indexer) {
+      this.indexer.restore(snapshot.indexer);
+    }
   }
 
   private buildSnapshot(): StoreSnapshot {
@@ -115,6 +140,7 @@ export class OracleStore {
       nextMarketId: this.nextMarketId,
       nextPositionId: this.nextPositionId,
       authority: this.authority,
+      indexer: this.indexer.snapshot(),
     };
   }
 
@@ -123,7 +149,6 @@ export class OracleStore {
     saveSnapshot(this.persistencePath, this.buildSnapshot());
   }
 
-  // [ISSUES 21 & 22 FIX Helper] - Returns the authorized admin
   getRegistryAuthority(): string {
     return this.authority;
   }
@@ -159,6 +184,17 @@ export class OracleStore {
       version: CURRENT_STORE_VERSION,
     };
     this.positions.push(position);
+    
+    // Log the event through the indexer
+    this.indexer.consumeEvent({
+      marketId: input.marketId,
+      type: "POSITION_COMMITTED",
+      actor: input.wallet,
+      details: "Private position submitted.",
+      slot: 0, // Placeholder until indexer worker pushes real data
+      signature: txSig
+    });
+
     this.persistSnapshot();
     return { position, txSig };
   }
@@ -167,8 +203,21 @@ export class OracleStore {
     const positions = this.listPositions({ wallet });
     return {
       positions,
-      summary: getPortfolioSummary(positions as any), // Cast for summary math compat
+      summary: getPortfolioSummary(positions as any),
     };
+  }
+
+  // [Tier 3] Re-integrated indexer methods for observability dashboard
+  getAuditLog(limit = 200): AuditLogRecord[] {
+    return this.indexer.listAuditLog(limit);
+  }
+
+  reconcileIndexerState(): IndexerReconcileReport {
+    return this.indexer.reconcileState();
+  }
+
+  getMarketActivity(marketId: number, limit = 50): IndexerEventRecord[] {
+    return this.indexer.listMarketActivity(marketId, limit);
   }
 }
 
