@@ -1,17 +1,16 @@
 import React, { useState } from "react";
 import { useRouter } from "next/router";
 import Head from "next/head";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useAnchorWallet, useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { format } from "date-fns";
+import { AnchorProvider } from "@coral-xyz/anchor";
 import Navbar from "../../components/Navbar";
-import { DEMO_MARKETS } from "../../utils/program";
+import { DEMO_MARKETS, PROGRAM_ID } from "../../utils/program";
 import {
   encryptStake,
   encryptChoice,
   commitStake,
-  fetchClusterPublicKey,
-  ARCIUM_DEVNET_CLUSTER,
 } from "../../utils/arcium";
 
 type StepState = "idle" | "encrypting" | "submitting" | "confirmed" | "error";
@@ -19,7 +18,12 @@ type StepState = "idle" | "encrypting" | "submitting" | "confirmed" | "error";
 export default function MarketPage() {
   const router = useRouter();
   const { id } = router.query;
-  const { connected, publicKey } = useWallet();
+  const { connected } = useWallet();
+  const anchorWallet = useAnchorWallet();
+  const { connection } = useConnection();
+  const provider = anchorWallet
+    ? new AnchorProvider(connection, anchorWallet, { preflightCommitment: "confirmed" })
+    : null;
 
   const market = DEMO_MARKETS.find((m) => m.id === Number(id));
 
@@ -45,7 +49,7 @@ export default function MarketPage() {
   const noP = 100 - yesP;
 
   async function handleSubmit() {
-    if (!choice || !stakeInput || !connected) return;
+    if (!choice || !stakeInput || !connected || !provider) return;
     const stakeSOL = parseFloat(stakeInput);
     if (isNaN(stakeSOL) || stakeSOL <= 0) return;
 
@@ -53,13 +57,10 @@ export default function MarketPage() {
     setError(null);
 
     try {
-      // 1. Fetch Arcium cluster public key
-      const clusterKey = await fetchClusterPublicKey(ARCIUM_DEVNET_CLUSTER);
-
-      // 2. Encrypt stake amount + choice CLIENT-SIDE
+      // 1. Encrypt stake amount + choice CLIENT-SIDE via Arcium SDK
       const stakeLamports = BigInt(Math.floor(stakeSOL * 1e9));
-      const encStake  = encryptStake(stakeLamports, clusterKey);
-      const encChoice = encryptChoice(choice === "yes", clusterKey);
+      const encStake = await encryptStake(stakeLamports, provider, PROGRAM_ID);
+      const encChoice = await encryptChoice(choice === "yes", provider, PROGRAM_ID);
 
       // 3. Generate stake commitment — hides amount from on-chain state.
       //    stakeNonce must be stored securely; it is required at settlement
@@ -75,7 +76,7 @@ export default function MarketPage() {
       );
 
       // Preview the ciphertext (first 8 bytes of c1 for UI)
-      const preview = `0x${Buffer.from(encStake.c1).slice(0, 8).toString("hex")}…`;
+      const preview = `0x${Buffer.from(encStake.c1).slice(0, 8).toString("hex")}...`;
       setEncryptedPreview(preview);
 
       setStep("submitting");
@@ -220,7 +221,7 @@ export default function MarketPage() {
                        target="_blank" rel="noreferrer"
                        className="font-mono text-xs"
                        style={{ color: "#22D3EE" }}>
-                      View tx: {txSig.slice(0, 16)}…
+                      View tx: {txSig.slice(0, 16)}...
                     </a>
                   )}
                 </div>
@@ -293,8 +294,8 @@ export default function MarketPage() {
                           disabled={!choice || !stakeInput || step === "encrypting" || step === "submitting"}
                           className="btn-primary w-full"
                           style={{ opacity: !choice || !stakeInput ? 0.5 : 1 }}>
-                    {step === "encrypting" && "⟳ ENCRYPTING…"}
-                    {step === "submitting" && "⟳ SUBMITTING…"}
+                    {step === "encrypting" && "⟳ ENCRYPTING..."}
+                    {step === "submitting" && "⟳ SUBMITTING..."}
                     {(step === "idle" || step === "error") && "🔒 ENCRYPT & SUBMIT POSITION"}
                   </button>
                 </>
