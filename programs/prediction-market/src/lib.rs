@@ -102,6 +102,7 @@ pub enum PredictionMarketError {
     #[msg("Overflow")] Overflow,
     #[msg("Timeout")] Timeout,
     #[msg("Invalid market state")] BadState,
+    #[msg("Oracle already voted")] DuplicateVote,
 }
 
 #[program]
@@ -172,7 +173,11 @@ pub mod prediction_market {
         let registry = &ctx.accounts.registry;
         let market = &mut ctx.accounts.market;
         let oracle_key = ctx.accounts.oracle.key();
+        require!(market.status == MarketStatus::Open, PredictionMarketError::NotOpen);
         require!(registry.oracle_keys.iter().any(|&k| k == oracle_key), PredictionMarketError::Unauthorized);
+        if market.voters.iter().any(|voter| *voter == oracle_key) {
+            return err!(PredictionMarketError::DuplicateVote);
+        }
         let mut inserted = false;
         for (idx, voter) in market.voters.iter_mut().enumerate() {
             if *voter == Pubkey::default() {
@@ -195,6 +200,18 @@ pub mod prediction_market {
             market.challenger = Pubkey::default();
             market.challenge_bond = 0;
         }
+        Ok(())
+    }
+
+    pub fn reveal_stakes(ctx: Context<RevealStakes>, yes_total: u64, no_total: u64) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        require!(ctx.accounts.authority.key() == ctx.accounts.registry.authority, PredictionMarketError::Unauthorized);
+        require!(
+            market.status == MarketStatus::SettledPending || market.status == MarketStatus::Challenged,
+            PredictionMarketError::BadState
+        );
+        market.revealed_yes_stake = yes_total;
+        market.revealed_no_stake = no_total;
         Ok(())
     }
 
@@ -370,6 +387,16 @@ pub struct VoteOnOutcome<'info> {
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
     pub oracle: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct RevealStakes<'info> {
+    #[account(seeds = [REGISTRY_SEED], bump = registry.bump)]
+    pub registry: Account<'info, MarketRegistry>,
+    #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
+    pub market: Account<'info, Market>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
