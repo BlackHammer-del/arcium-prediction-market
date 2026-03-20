@@ -44,8 +44,6 @@ type ArciumCipher = {
   clientPublicKey: Uint8Array;
 };
 
-const cipherCache = new Map<string, Promise<ArciumCipher>>();
-
 async function getMxePublicKeyWithRetry(
   provider: AnchorProvider,
   programId: PublicKey,
@@ -60,27 +58,18 @@ async function getMxePublicKeyWithRetry(
   throw new Error("Arcium MXE public key unavailable.");
 }
 
-async function getArciumCipher(
+async function createArciumCipher(
   provider: AnchorProvider,
   programId: PublicKey
 ): Promise<ArciumCipher> {
-  const cacheKey = programId.toBase58();
-  const existing = cipherCache.get(cacheKey);
-  if (existing) return existing;
-
-  const promise = (async () => {
-    const clientSecretKey = x25519.utils.randomSecretKey();
-    const clientPublicKey = x25519.getPublicKey(clientSecretKey);
-    const mxePublicKey = await getMxePublicKeyWithRetry(provider, programId);
-    const sharedSecret = x25519.getSharedSecret(clientSecretKey, mxePublicKey);
-    return {
-      cipher: new RescueCipher(sharedSecret),
-      clientPublicKey,
-    };
-  })();
-
-  cipherCache.set(cacheKey, promise);
-  return promise;
+  const clientSecretKey = x25519.utils.randomSecretKey();
+  const clientPublicKey = x25519.getPublicKey(clientSecretKey);
+  const mxePublicKey = await getMxePublicKeyWithRetry(provider, programId);
+  const sharedSecret = x25519.getSharedSecret(clientSecretKey, mxePublicKey);
+  return {
+    cipher: new RescueCipher(sharedSecret),
+    clientPublicKey,
+  };
 }
 
 function randomNonce(size = 16): Uint8Array {
@@ -107,7 +96,7 @@ export async function encryptStake(
   provider: AnchorProvider,
   programId: PublicKey
 ): Promise<Ciphertext> {
-  const { cipher } = await getArciumCipher(provider, programId);
+  const { cipher } = await createArciumCipher(provider, programId);
   const nonce = randomNonce();
   const parts = cipher.encrypt([amountLamports, 0n], nonce);
   return splitCiphertext(parts);
@@ -118,7 +107,7 @@ export async function encryptChoice(
   provider: AnchorProvider,
   programId: PublicKey
 ): Promise<Ciphertext> {
-  const { cipher } = await getArciumCipher(provider, programId);
+  const { cipher } = await createArciumCipher(provider, programId);
   const nonce = randomNonce();
   const choiceValue = choice ? 1n : 0n;
   const parts = cipher.encrypt([choiceValue, 0n], nonce);
@@ -179,6 +168,22 @@ export function yesPercent(
   return total === 0 ? 50 : Math.round((yes / total) * 100);
 }
 
+const REVEAL_DOMAIN = new TextEncoder().encode("oracle-reveal");
+
+export async function buildRevealMessage(
+  marketId: number,
+  yesTotal: bigint,
+  noTotal: bigint
+): Promise<Uint8Array> {
+  const payload = new Uint8Array(REVEAL_DOMAIN.length + 24);
+  payload.set(REVEAL_DOMAIN, 0);
+  payload.set(u64ToBytes(marketId), REVEAL_DOMAIN.length);
+  payload.set(u64ToBytes(yesTotal), REVEAL_DOMAIN.length + 8);
+  payload.set(u64ToBytes(noTotal), REVEAL_DOMAIN.length + 16);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", payload);
+  return new Uint8Array(digest);
+}
+
 function bigintToBytes32(n: bigint): Uint8Array {
   const buf = new Uint8Array(32);
   let tmp = n;
@@ -187,4 +192,14 @@ function bigintToBytes32(n: bigint): Uint8Array {
     tmp >>= BigInt(8);
   }
   return buf;
+}
+
+function u64ToBytes(value: number | bigint): Uint8Array {
+  let tmp = typeof value === "number" ? BigInt(value) : value;
+  const out = new Uint8Array(8);
+  for (let i = 0; i < 8; i++) {
+    out[i] = Number(tmp & BigInt(0xff));
+    tmp >>= BigInt(8);
+  }
+  return out;
 }
