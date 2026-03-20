@@ -5,7 +5,7 @@ import { requireWalletAuth } from "../../../lib/server/api-guards";
 
 // Portfolio API: returns wallet-scoped positions and summary metrics.
 // This endpoint intentionally requires a valid wallet parameter and authentication.
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     res.status(405).json({ error: `Method ${req.method ?? "UNKNOWN"} Not Allowed` });
@@ -18,7 +18,13 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  const wallet = normalizeWallet(walletInput);
+  let wallet: string | undefined;
+  try {
+    wallet = normalizeWallet(walletInput);
+  } catch {
+    res.status(400).json({ error: "Invalid wallet address." });
+    return;
+  }
   if (!wallet) {
     res.status(401).json({ error: "Valid wallet required to access portfolio." });
     return;
@@ -33,7 +39,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     return;
   }
 
-  if (!requireWalletAuth(req, res, { wallet, action: "portfolio:view", auth })) return;
+  if (!(await requireWalletAuth(req, res, { wallet, action: "portfolio:view", auth }))) return;
 
   const portfolio = store.getPortfolio(wallet);
 
