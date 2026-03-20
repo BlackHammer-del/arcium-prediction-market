@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../../../utils/program";
 import { serializeStoredMarket } from "../../../utils/api";
 import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../lib/server/api-guards";
-import { isValidWalletAddress, normalizeWallet, store } from "../../../lib/server/store";
+import { normalizeWallet, store } from "../../../lib/server/store";
 
 // [BIG PICTURE ALIGNMENT] - Synced with lib.rs
 const STATUS_SET = new Set<MarketStatus>(["Open", "SettledPending", "Challenged", "Settled", "Invalid", "Cancelled"]);
@@ -27,7 +27,7 @@ function parseStatus(raw: string | string[] | undefined): MarketStatus | undefin
   return STATUS_SET.has(value as MarketStatus) ? (value as MarketStatus) : undefined;
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
     const status = parseStatus(req.query.status);
     const category = parseCategory(req.query.category);
@@ -42,10 +42,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === "POST") {
     if (!requireJson(req, res)) return;
-    if (!enforceRateLimit(req, res, { key: rateLimitKey(req, "markets:create"), limit: 6, windowMs: 60_000 })) return;
+    if (!(await enforceRateLimit(req, res, { key: rateLimitKey(req, "markets:create"), limit: 6, windowMs: 60_000 }))) return;
 
     const { title, description, resolutionSource, category, rules, creatorWallet: creatorWalletRaw, auth } = req.body;
-    const creatorWallet = normalizeWallet(creatorWalletRaw);
+    let creatorWallet: string | undefined;
+    try {
+      creatorWallet = normalizeWallet(creatorWalletRaw);
+    } catch {
+      res.status(400).json({ error: "Invalid wallet address." });
+      return;
+    }
     const resolutionTimestamp = new Date(req.body?.resolutionTimestamp ?? "");
 
     if (!title || !description || !category || !resolutionSource || !rules || rules.length < 2 || isNaN(resolutionTimestamp.getTime())) {
@@ -53,12 +59,12 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return;
     }
 
-    if (!creatorWallet || !isValidWalletAddress(creatorWallet)) {
+    if (!creatorWallet) {
       res.status(401).json({ error: "Valid wallet required." });
       return;
     }
 
-    if (!requireWalletAuth(req, res, { wallet: creatorWallet, action: "markets:create", auth })) return;
+    if (!(await requireWalletAuth(req, res, { wallet: creatorWallet, action: "markets:create", auth }))) return;
 
     try {
       const market = store.createMarket({
