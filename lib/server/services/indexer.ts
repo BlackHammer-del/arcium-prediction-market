@@ -81,7 +81,7 @@ export class SolanaIndexerWorkerService {
       
       const expectedHash = createHash("sha256")
         .update(previous.integrityHash)
-        .update(JSON.stringify(serializeEventSnapshot(current as any))) // Re-serialize for hash
+        .update(JSON.stringify(serializeEventSnapshot(stripIntegrity(current))))
         .digest("hex");
         
       if (current.integrityHash !== expectedHash) {
@@ -202,5 +202,18 @@ function deserializeAuditSnapshot(entry: SerializedAuditLogRecord): AuditLogReco
   return {
     ...deserializeEventSnapshot(entry),
     integrityHash: entry.integrityHash,
+  };
+}
+
+function stripIntegrity(entry: AuditLogRecord): IndexerEventRecord {
+  return {
+    id: entry.id,
+    slot: entry.slot,
+    signature: entry.signature,
+    marketId: entry.marketId,
+    type: entry.type,
+    actor: entry.actor,
+    timestamp: entry.timestamp,
+    details: entry.details,
   };
 }
