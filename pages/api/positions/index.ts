@@ -33,19 +33,22 @@ function parseCipher(value: unknown): CipherPayload | undefined {
   };
 }
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
     const marketId = parseId(req.query.marketId);
     const walletRaw = Array.isArray(req.query.wallet) ? req.query.wallet[0] : req.query.wallet;
-    const wallet = walletRaw ? normalizeWallet(walletRaw) : undefined;
-
-    if (walletRaw && !wallet) {
-      res.status(400).json({ error: "Invalid wallet filter." });
-      return;
+    let wallet: string | undefined;
+    if (walletRaw) {
+      try {
+        wallet = normalizeWallet(walletRaw);
+      } catch {
+        res.status(400).json({ error: "Invalid wallet filter." });
+        return;
+      }
     }
     
     // [ISSUE 12 FIX] - Enforce auth on GET history
-    if (wallet && wallet !== "demo_wallet") {
+    if (wallet) {
       let auth;
       try {
         auth = req.query.auth ? JSON.parse(req.query.auth as string) : undefined;
@@ -54,7 +57,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
         return;
       }
       
-      if (!requireWalletAuth(req, res, { wallet, action: "positions:list", auth })) return;
+      if (!(await requireWalletAuth(req, res, { wallet, action: "positions:list", auth }))) return;
     }
 
     const positions = store.listPositions({ marketId, wallet }).map(p => serializeStoredPosition(p));
@@ -64,10 +67,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === "POST") {
     if (!requireJson(req, res)) return;
-    if (!enforceRateLimit(req, res, { key: rateLimitKey(req, "positions:submit"), limit: 30, windowMs: 60_000 })) return;
+    if (!(await enforceRateLimit(req, res, { key: rateLimitKey(req, "positions:submit"), limit: 30, windowMs: 60_000 }))) return;
 
     const marketId = Number.parseInt(String(req.body?.marketId), 10);
-    const wallet = normalizeWallet(req.body?.wallet);
+    let wallet: string | undefined;
+    try {
+      wallet = normalizeWallet(req.body?.wallet);
+    } catch {
+      res.status(400).json({ error: "Invalid wallet address." });
+      return;
+    }
     const commitment = req.body?.commitment;
     const sealedAt = new Date(req.body?.sealedAt);
     const auth = req.body?.auth;
@@ -82,7 +91,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       return;
     }
 
-    if (!requireWalletAuth(req, res, { wallet, action: "positions:submit", auth })) return;
+    if (!(await requireWalletAuth(req, res, { wallet, action: "positions:submit", auth }))) return;
 
     try {
       const result = store.submitPosition({
