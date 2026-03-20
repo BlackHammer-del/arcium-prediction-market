@@ -26,3 +26,4 @@ out/
 .env.local
 GITHUB_PUSH.md
 data/*.ndjson
+data/*.db
