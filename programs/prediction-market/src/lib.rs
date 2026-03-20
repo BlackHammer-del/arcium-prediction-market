@@ -203,6 +203,23 @@ pub mod prediction_market {
         Ok(())
     }
 
+    pub fn request_tally(ctx: Context<RequestTally>) -> Result<()> {
+        let market = &mut ctx.accounts.market;
+        require!(ctx.accounts.authority.key() == ctx.accounts.registry.authority, PredictionMarketError::Unauthorized);
+        require!(market.outcome.is_some(), PredictionMarketError::MpcPending);
+        require!(
+            market.status == MarketStatus::Open || market.status == MarketStatus::SettledPending,
+            PredictionMarketError::BadState
+        );
+        if market.status == MarketStatus::Open {
+            market.status = MarketStatus::SettledPending;
+        }
+        if market.challenge_deadline == 0 {
+            market.challenge_deadline = Clock::get()?.unix_timestamp + CHALLENGE_WINDOW_SECS;
+        }
+        Ok(())
+    }
+
     pub fn reveal_stakes(ctx: Context<RevealStakes>, yes_total: u64, no_total: u64) -> Result<()> {
         let market = &mut ctx.accounts.market;
         require!(ctx.accounts.authority.key() == ctx.accounts.registry.authority, PredictionMarketError::Unauthorized);
@@ -230,12 +247,11 @@ pub mod prediction_market {
     }
 
     pub fn finalize_settlement(ctx: Context<FinalizeSettlement>) -> Result<()> {
-        let market = &mut ctx.accounts.market;
-        require!(market.status == MarketStatus::SettledPending, PredictionMarketError::BadState);
-        require!(Clock::get()?.unix_timestamp > market.challenge_deadline, PredictionMarketError::Timeout);
-        require!(!market.challenged, PredictionMarketError::Unauthorized);
-        market.status = MarketStatus::Settled;
-        Ok(())
+        complete_settlement(&mut ctx.accounts.market)
+    }
+
+    pub fn settle_market(ctx: Context<SettleMarket>) -> Result<()> {
+        complete_settlement(&mut ctx.accounts.market)
     }
 
     pub fn resolve_dispute(ctx: Context<ResolveDispute>, resolution: DisputeResolution) -> Result<()> {
@@ -337,6 +353,15 @@ pub mod prediction_market {
     }
 }
 
+fn complete_settlement(market: &mut Market) -> Result<()> {
+    require!(market.status == MarketStatus::SettledPending, PredictionMarketError::BadState);
+    require!(market.outcome.is_some(), PredictionMarketError::MpcPending);
+    require!(Clock::get()?.unix_timestamp > market.challenge_deadline, PredictionMarketError::Timeout);
+    require!(!market.challenged, PredictionMarketError::Unauthorized);
+    market.status = MarketStatus::Settled;
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(init, payer = authority, space = REGISTRY_SPACE, seeds = [REGISTRY_SEED], bump)]
@@ -400,6 +425,16 @@ pub struct RevealStakes<'info> {
 }
 
 #[derive(Accounts)]
+pub struct RequestTally<'info> {
+    #[account(seeds = [REGISTRY_SEED], bump = registry.bump)]
+    pub registry: Account<'info, MarketRegistry>,
+    #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
+    pub market: Account<'info, Market>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct ChallengeSettlement<'info> {
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
@@ -414,6 +449,12 @@ pub struct ChallengeSettlement<'info> {
 
 #[derive(Accounts)]
 pub struct FinalizeSettlement<'info> {
+    #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
+    pub market: Account<'info, Market>,
+}
+
+#[derive(Accounts)]
+pub struct SettleMarket<'info> {
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
 }
