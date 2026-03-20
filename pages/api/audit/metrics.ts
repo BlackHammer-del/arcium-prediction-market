@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { store } from "../../../lib/server/store";
 import { requireAdminAuth } from "../../../lib/server/api-guards";
 
-export default function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     res.setHeader("Allow", ["GET"]);
     res.status(405).json({ error: `Method ${req.method} Not Allowed` });
@@ -10,7 +10,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   // [ISSUES 21 & 22 FIX] - Enforce admin auth for sensitive metrics
-  if (!requireAdminAuth(req, res)) return;
+  if (!(await requireAdminAuth(req, res))) return;
 
   const auditLog = store.getAuditLog(10);
   const reconcile = store.reconcileIndexerState();
