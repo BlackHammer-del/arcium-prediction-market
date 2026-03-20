@@ -1,5 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::hash::hashv;
+use anchor_lang::solana_program::ed25519_program;
+use anchor_lang::solana_program::instruction::Instruction;
+use anchor_lang::solana_program::sysvar::instructions::{load_current_index_checked, load_instruction_at_checked};
+use anchor_lang::solana_program::sysvar::instructions::Instructions;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("7krCLEf4n4QnLnaLgJQTkQB7bS72PRxbM2dGZLb3oQto");
@@ -15,6 +19,7 @@ pub const MIN_CHALLENGE_BOND: u64 = 5_000_000;
 pub const ORACLE_VOTE_THRESHOLD: u8 = 3;
 pub const CHALLENGE_WINDOW_SECS: i64 = 24 * 60 * 60;
 pub const LIVENESS_TIMEOUT_SECS: i64 = 7 * 24 * 60 * 60;
+pub const REVEAL_DOMAIN: &[u8] = b"oracle-reveal";
 
 pub const REGISTRY_SPACE: usize = 8 + 32 + 32 + (32 * 5) + 8 + 1 + 1;
 pub const MARKET_SPACE: usize = 1200;
@@ -103,6 +108,7 @@ pub enum PredictionMarketError {
     #[msg("Timeout")] Timeout,
     #[msg("Invalid market state")] BadState,
     #[msg("Oracle already voted")] DuplicateVote,
+    #[msg("Invalid relay signature")] BadSignature,
 }
 
 #[program]
@@ -227,6 +233,8 @@ pub mod prediction_market {
             market.status == MarketStatus::SettledPending || market.status == MarketStatus::Challenged,
             PredictionMarketError::BadState
         );
+        let digest = build_reveal_digest(market.id, yes_total, no_total);
+        verify_relay_signature(&ctx.accounts.instructions.to_account_info(), &ctx.accounts.registry.arcium_cluster, &digest)?;
         market.revealed_yes_stake = yes_total;
         market.revealed_no_stake = no_total;
         Ok(())
@@ -251,6 +259,7 @@ pub mod prediction_market {
     }
 
     pub fn settle_market(ctx: Context<SettleMarket>) -> Result<()> {
+        require!(ctx.accounts.authority.key() == ctx.accounts.registry.authority, PredictionMarketError::Unauthorized);
         complete_settlement(&mut ctx.accounts.market)
     }
 
@@ -369,6 +378,71 @@ fn complete_settlement(market: &mut Market) -> Result<()> {
     Ok(())
 }
 
+fn build_reveal_digest(market_id: u64, yes_total: u64, no_total: u64) -> [u8; 32] {
+    let mut market_bytes = [0u8; 8];
+    market_bytes.copy_from_slice(&market_id.to_le_bytes());
+    let mut yes_bytes = [0u8; 8];
+    yes_bytes.copy_from_slice(&yes_total.to_le_bytes());
+    let mut no_bytes = [0u8; 8];
+    no_bytes.copy_from_slice(&no_total.to_le_bytes());
+
+    hashv(&[REVEAL_DOMAIN, &market_bytes, &yes_bytes, &no_bytes]).to_bytes()
+}
+
+fn verify_relay_signature(
+    instructions_sysvar: &AccountInfo,
+    expected_pubkey: &Pubkey,
+    message: &[u8; 32],
+) -> Result<()> {
+    let current_index = load_current_index_checked(instructions_sysvar)? as usize;
+    require!(current_index > 0, PredictionMarketError::BadSignature);
+
+    let ix: Instruction = load_instruction_at_checked(current_index - 1, instructions_sysvar)?;
+    require!(ix.program_id == ed25519_program::ID, PredictionMarketError::BadSignature);
+
+    let data = ix.data;
+    require!(data.len() >= 16, PredictionMarketError::BadSignature);
+
+    let num_signatures = data[0];
+    require!(num_signatures == 1, PredictionMarketError::BadSignature);
+
+    let signature_offset = read_u16(&data, 2)? as usize;
+    let signature_index = read_u16(&data, 4)?;
+    let public_key_offset = read_u16(&data, 6)? as usize;
+    let public_key_index = read_u16(&data, 8)?;
+    let message_offset = read_u16(&data, 10)? as usize;
+    let message_size = read_u16(&data, 12)? as usize;
+    let message_index = read_u16(&data, 14)?;
+
+    require!(is_self_index(signature_index), PredictionMarketError::BadSignature);
+    require!(is_self_index(public_key_index), PredictionMarketError::BadSignature);
+    require!(is_self_index(message_index), PredictionMarketError::BadSignature);
+
+    require!(signature_offset + 64 <= data.len(), PredictionMarketError::BadSignature);
+    require!(public_key_offset + 32 <= data.len(), PredictionMarketError::BadSignature);
+    require!(message_offset + message_size <= data.len(), PredictionMarketError::BadSignature);
+    require!(message_size == 32, PredictionMarketError::BadSignature);
+
+    let public_key = &data[public_key_offset..public_key_offset + 32];
+    require!(public_key == expected_pubkey.as_ref(), PredictionMarketError::BadSignature);
+
+    let payload = &data[message_offset..message_offset + message_size];
+    require!(payload == message, PredictionMarketError::BadSignature);
+
+    Ok(())
+}
+
+fn read_u16(data: &[u8], offset: usize) -> Result<u16> {
+    if offset + 2 > data.len() {
+        return err!(PredictionMarketError::BadSignature);
+    }
+    Ok(u16::from_le_bytes([data[offset], data[offset + 1]]))
+}
+
+fn is_self_index(value: u16) -> bool {
+    value == u16::MAX || value == 0
+}
+
 #[derive(Accounts)]
 pub struct Initialize<'info> {
     #[account(init, payer = authority, space = REGISTRY_SPACE, seeds = [REGISTRY_SEED], bump)]
@@ -427,8 +501,9 @@ pub struct RevealStakes<'info> {
     pub registry: Account<'info, MarketRegistry>,
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
-    #[account(mut)]
+    #[account(mut, constraint = authority.key() == registry.authority)]
     pub authority: Signer<'info>,
+    pub instructions: Sysvar<'info, Instructions>,
 }
 
 #[derive(Accounts)]
@@ -437,7 +512,7 @@ pub struct RequestTally<'info> {
     pub registry: Account<'info, MarketRegistry>,
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
-    #[account(mut)]
+    #[account(mut, constraint = authority.key() == registry.authority)]
     pub authority: Signer<'info>,
 }
 
@@ -462,8 +537,12 @@ pub struct FinalizeSettlement<'info> {
 
 #[derive(Accounts)]
 pub struct SettleMarket<'info> {
+    #[account(seeds = [REGISTRY_SEED], bump = registry.bump)]
+    pub registry: Account<'info, MarketRegistry>,
     #[account(mut, seeds = [MARKET_SEED, market.id.to_le_bytes().as_ref()], bump = market.bump)]
     pub market: Account<'info, Market>,
+    #[account(mut, constraint = authority.key() == registry.authority)]
+    pub authority: Signer<'info>,
 }
 
 #[derive(Accounts)]
