@@ -18,6 +18,19 @@ function encodeBase64(value: Uint8Array): string {
   return btoa(binary);
 }
 
+function generateNonce(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.randomUUID) {
+    return cryptoApi.randomUUID();
+  }
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
 export async function ensureWalletUnlocked(wallet: WalletGuardInput, actionLabel: string): Promise<void> {
   if (!wallet.connected || !wallet.publicKey) {
     throw new Error("Connect your wallet first.");
@@ -53,7 +66,7 @@ export async function ensureWalletUnlocked(wallet: WalletGuardInput, actionLabel
 export async function createWalletAuthPayload(
   wallet: WalletGuardInput,
   actionLabel: string
-): Promise<{ message: string; signature: string; timestamp: string }> {
+): Promise<{ message: string; signature: string; timestamp: string; nonce: string }> {
   if (!wallet.connected || !wallet.publicKey) {
     throw new Error("Connect your wallet first.");
   }
@@ -62,12 +75,14 @@ export async function createWalletAuthPayload(
   }
 
   const timestamp = new Date().toISOString();
-  const message = buildWalletAuthMessage(actionLabel, wallet.publicKey.toBase58(), timestamp);
+  const nonce = generateNonce();
+  const message = buildWalletAuthMessage(actionLabel, wallet.publicKey.toBase58(), timestamp, nonce);
   const signatureBytes = await wallet.signMessage(encoder.encode(message));
 
   return {
     message,
     signature: encodeBase64(signatureBytes),
     timestamp,
+    nonce,
   };
 }
