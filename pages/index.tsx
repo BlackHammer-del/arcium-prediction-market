@@ -181,6 +181,7 @@ export default function Home() {
                 <MarketCard
                   key={market.id}
                   id={market.id}
+                  category={market.category}
                   title={market.title}
                   description={market.description}
                   resolutionTimestamp={market.resolutionTimestamp}
