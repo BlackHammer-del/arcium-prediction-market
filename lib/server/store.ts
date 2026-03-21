@@ -51,7 +51,9 @@ let pendingBackend: StoreBackend | null = null;
 let pendingPath: string | undefined;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let missingPersistenceWarned = false;
-let database: Database | null = null;
+type SqliteDatabase = InstanceType<typeof Database>;
+
+let database: SqliteDatabase | null = null;
 
 type MetaRecord = Record<string, string>;
 
@@ -83,7 +85,7 @@ function deserializeCipher(
   };
 }
 
-function ensureSchema(db: Database): void {
+function ensureSchema(db: SqliteDatabase): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS oracle_meta (
       key TEXT PRIMARY KEY,
@@ -205,7 +207,7 @@ function ensureSchema(db: Database): void {
   `);
 }
 
-function readMeta(db: Database): MetaRecord {
+function readMeta(db: SqliteDatabase): MetaRecord {
   const rows = db.prepare("SELECT key, value FROM oracle_meta").all() as Array<{ key: string; value: string }>;
   return rows.reduce<MetaRecord>((acc, row) => {
     acc[row.key] = row.value;
@@ -213,7 +215,7 @@ function readMeta(db: Database): MetaRecord {
   }, {});
 }
 
-function writeMeta(db: Database, entries: MetaRecord): void {
+function writeMeta(db: SqliteDatabase, entries: MetaRecord): void {
   const stmt = db.prepare("INSERT OR REPLACE INTO oracle_meta (key, value) VALUES (?, ?)");
   const tx = db.transaction(() => {
     Object.entries(entries).forEach(([key, value]) => {
@@ -1092,7 +1094,7 @@ function resolveDatabasePath(): string {
   return resolve(configured || DEFAULT_DB_PATH);
 }
 
-function getDatabase(): Database {
+function getDatabase(): SqliteDatabase {
   if (!database) {
     const dbPath = resolveDatabasePath();
     mkdirSync(dirname(dbPath), { recursive: true });
@@ -1151,7 +1153,7 @@ function resolveNextId(metaValue: string | undefined, ids: number[]): number {
   return max + 1;
 }
 
-function loadMarketsFromDatabase(db: Database): StoredMarket[] {
+function loadMarketsFromDatabase(db: SqliteDatabase): StoredMarket[] {
   const rows = db
     .prepare(
       `SELECT id, creator, title, description, resolution_timestamp, category, status, total_participants, rules, resolution_source, outcome, revealed_yes_stake, revealed_no_stake, version
@@ -1193,7 +1195,7 @@ function loadMarketsFromDatabase(db: Database): StoredMarket[] {
 }
 
 function loadPositionsFromDatabase(
-  db: Database,
+  db: SqliteDatabase,
   markets: Map<number, StoredMarket>
 ): StoredPosition[] {
   const rows = db
@@ -1227,7 +1229,7 @@ function loadPositionsFromDatabase(
   }));
 }
 
-function loadDisputeSnapshotFromDatabase(db: Database, meta: MetaRecord): DisputeEngineSnapshot {
+function loadDisputeSnapshotFromDatabase(db: SqliteDatabase, meta: MetaRecord): DisputeEngineSnapshot {
   const disputes = db
     .prepare("SELECT * FROM disputes ORDER BY created_at DESC")
     .all() as Array<Record<string, any>>;
@@ -1307,7 +1309,7 @@ function loadDisputeSnapshotFromDatabase(db: Database, meta: MetaRecord): Disput
   };
 }
 
-function loadIndexerSnapshotFromDatabase(db: Database, meta: MetaRecord): IndexerSnapshot {
+function loadIndexerSnapshotFromDatabase(db: SqliteDatabase, meta: MetaRecord): IndexerSnapshot {
   const events = db
     .prepare("SELECT * FROM indexer_events ORDER BY id DESC")
     .all() as Array<Record<string, any>>;
@@ -1351,7 +1353,7 @@ function loadIndexerSnapshotFromDatabase(db: Database, meta: MetaRecord): Indexe
   };
 }
 
-function migrateLegacySnapshotIfNeeded(db: Database): void {
+function migrateLegacySnapshotIfNeeded(db: SqliteDatabase): void {
   const meta = readMeta(db);
   if (meta.schema_version) return;
 
@@ -1366,7 +1368,7 @@ function migrateLegacySnapshotIfNeeded(db: Database): void {
   db.exec("DROP TABLE IF EXISTS oracle_store");
 }
 
-function loadLegacySnapshotFromDatabase(db: Database): StoreSnapshot | null {
+function loadLegacySnapshotFromDatabase(db: SqliteDatabase): StoreSnapshot | null {
   try {
     const row = db.prepare("SELECT snapshot FROM oracle_store WHERE id = 1").get() as { snapshot?: string } | undefined;
     if (!row?.snapshot) return null;
@@ -1392,7 +1394,7 @@ function loadLegacySnapshotFromDatabase(db: Database): StoreSnapshot | null {
   }
 }
 
-function importLegacySnapshot(db: Database, snapshot: StoreSnapshot): void {
+function importLegacySnapshot(db: SqliteDatabase, snapshot: StoreSnapshot): void {
   const insertMarket = db.prepare(
     `INSERT OR REPLACE INTO markets
     (id, creator, title, description, resolution_timestamp, category, status, total_participants, rules, resolution_source, outcome, revealed_yes_stake, revealed_no_stake, version)
