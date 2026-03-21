@@ -1103,6 +1103,7 @@ function getDatabase(): Database {
       throw new Error("[oracle-store] SQLite backend unavailable. Install better-sqlite3 or switch ORACLE_STORE_BACKEND=file.");
     }
     database.pragma("journal_mode = wal");
+    database.pragma("foreign_keys = ON");
     ensureSchema(database);
     migrateLegacySnapshotIfNeeded(database);
   }
