@@ -37,7 +37,9 @@ function fromBase64(value: string): Uint8Array {
   return out;
 }
 
-function toCryptoBytes(value: BufferSource): Uint8Array {
+function toCryptoBytes(
+  value: ArrayBufferLike | ArrayBufferView<ArrayBufferLike>
+): Uint8Array<ArrayBuffer> {
   if (value instanceof ArrayBuffer) {
     return new Uint8Array(value);
   }
@@ -48,7 +50,9 @@ function toCryptoBytes(value: BufferSource): Uint8Array {
     return bytes;
   }
 
-  throw new TypeError("Unsupported buffer source.");
+  const bytes = new Uint8Array(value.byteLength);
+  bytes.set(new Uint8Array(value));
+  return bytes;
 }
 
 function storageKey(wallet: string, marketId: number, commitment: Uint8Array): string {
