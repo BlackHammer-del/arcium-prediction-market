@@ -37,6 +37,20 @@ function fromBase64(value: string): Uint8Array {
   return out;
 }
 
+function toCryptoBytes(value: BufferSource): Uint8Array {
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    const bytes = new Uint8Array(value.byteLength);
+    bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return bytes;
+  }
+
+  throw new TypeError("Unsupported buffer source.");
+}
+
 function storageKey(wallet: string, marketId: number, commitment: Uint8Array): string {
   const commitHex = toHex(commitment);
   return `oracle:nonce:${wallet}:${marketId}:${commitHex}`;
@@ -50,7 +64,7 @@ async function deriveVaultKey(wallet: WalletSigner): Promise<CryptoKey> {
   const cached = keyCache.get(walletKey);
   if (cached) return cached;
 
-  const signature = await wallet.signMessage(encoder.encode(VAULT_MESSAGE));
+  const signature = toCryptoBytes(await wallet.signMessage(encoder.encode(VAULT_MESSAGE)));
   const keyMaterial = await globalThis.crypto.subtle.importKey(
     "raw",
     signature,
@@ -90,7 +104,7 @@ export async function storeStakeNonce(
   const ciphertext = await globalThis.crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     key,
-    stakeNonce
+    toCryptoBytes(stakeNonce)
   );
 
   const payload: StoredNoncePayload = {
@@ -122,7 +136,7 @@ export async function loadStakeNonce(
   const plaintext = await globalThis.crypto.subtle.decrypt(
     { name: "AES-GCM", iv },
     key,
-    ciphertext
+    toCryptoBytes(ciphertext)
   );
 
   return new Uint8Array(plaintext);
