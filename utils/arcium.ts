@@ -11,6 +11,7 @@ import type { AnchorProvider } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { getMXEPublicKey, RescueCipher, x25519 } from "@arcium-hq/client";
 import nacl from "tweetnacl";
+import type { MarketCategory, MarketStatus } from "./program";
 
 export interface Ciphertext {
   c1: Uint8Array;
@@ -29,10 +30,11 @@ export interface StakeCommitment {
 
 export interface MarketState {
   id: number;
+  category: MarketCategory;
   title: string;
   description: string;
   resolutionTimestamp: Date;
-  status: "Open" | "SettledPending" | "Challenged" | "Settled" | "Invalid" | "Cancelled";
+  status: MarketStatus;
   totalParticipants: number;
   outcome?: boolean;
   revealedYesStake?: number;

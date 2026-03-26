@@ -4,7 +4,6 @@ import Link from "next/link";
 import Navbar from "../components/Navbar";
 import MarketCard from "../components/MarketCard";
 import { DEMO_MARKETS } from "../utils/program";
-import type { MarketState } from "../utils/arcium";
 
 const TICKER_ITEMS = [
   "STAKES ENCRYPTED · ARCIUM MPC",
@@ -175,8 +174,7 @@ export default function Home() {
           </div>
 
           <div className="grid md:grid-cols-2 gap-4">
-            {filtered.map((m) => {
-              const market = m as MarketState;
+            {filtered.map((market) => {
               return (
                 <MarketCard
                   key={market.id}

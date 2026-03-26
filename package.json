@@ -25,7 +25,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.35",
     "@solana/wallet-adapter-solflare": "^0.6.32",
     "@solana/web3.js": "^1.92.2",
-    "@upstash/redis": "^1.36.0",
+    "@upstash/redis": "1.36.3",
     "better-sqlite3": "^11.10.0",
     "bn.js": "^5.2.1",
     "date-fns": "^3.6.0",
