@@ -1,33 +1,17 @@
-/**
- * arcium.ts
- * Client-side Arcium encryption utilities.
- *
- * Uses the official Arcium TypeScript client SDK to encrypt stakes and choices.
- * The encrypted payloads can be submitted to Arcium-enabled programs without
- * leaking plaintext to the network.
- * Mainnet note: these helpers prepare ciphertexts locally, but the final trust
- * boundary is still the on-chain program plus the Arcium relay/reveal flow.
- */
-
 import type { AnchorProvider } from "@coral-xyz/anchor";
 import { PublicKey } from "@solana/web3.js";
 import { getMXEPublicKey, RescueCipher, x25519 } from "@arcium-hq/client";
 import nacl from "tweetnacl";
-import type { MarketCategory, MarketStatus } from "./program";
+import type { MarketCategory, MarketStatus } from "../shared/market-types";
 
 export interface Ciphertext {
   c1: Uint8Array;
   c2: Uint8Array;
 }
 
-/**
- * Everything the frontend needs to submit a position.
- * `stakeNonce` is kept client-side by the user and provided to
- * the Arcium relayer at settlement so it can call reveal_position.
- */
 export interface StakeCommitment {
-  commitment: Uint8Array; // SHA-256(amount_le_bytes || stakeNonce) stored on-chain
-  stakeNonce: Uint8Array; // 32-byte random blinding nonce kept secret until reveal
+  commitment: Uint8Array;
+  stakeNonce: Uint8Array;
 }
 
 export interface MarketState {
@@ -54,8 +38,6 @@ async function getMxePublicKeyWithRetry(
   retries = 12,
   delayMs = 500
 ): Promise<Uint8Array> {
-  // Fresh local validators and newly deployed programs can take a moment
-  // before exposing the MXE key; retrying avoids flaky first-run failures.
   for (let attempt = 0; attempt < retries; attempt += 1) {
     const mxePublicKey = await getMXEPublicKey(provider, programId);
     if (mxePublicKey) return mxePublicKey;
@@ -68,8 +50,6 @@ async function createArciumCipher(
   provider: AnchorProvider,
   programId: PublicKey
 ): Promise<ArciumCipher> {
-  // Each submission uses an ephemeral client keypair. The frontend never keeps
-  // a long-lived decryption secret for market positions.
   const clientSecretKey = x25519.utils.randomSecretKey();
   const clientPublicKey = x25519.getPublicKey(clientSecretKey);
   const mxePublicKey = await getMxePublicKeyWithRetry(provider, programId);
@@ -122,15 +102,10 @@ export async function encryptChoice(
   return splitCiphertext(parts);
 }
 
-/** Converts a Ciphertext to the number[] format Anchor expects. */
 export function serializeCiphertext(e: Ciphertext): { c1: number[]; c2: number[] } {
   return { c1: Array.from(e.c1), c2: Array.from(e.c2) };
 }
 
-/**
- * Generates a SHA-256 stake commitment.
- * The position account stores ONLY the commitment hash, not the plaintext amount.
- */
 export async function commitStake(amountLamports: bigint): Promise<StakeCommitment> {
   const stakeNonce = nacl.randomBytes(32);
 
@@ -145,12 +120,10 @@ export async function commitStake(amountLamports: bigint): Promise<StakeCommitme
   return { commitment, stakeNonce };
 }
 
-/** Decodes a null-padded 128-byte title array from on-chain. */
 export function decodeMarketTitle(bytes: number[]): string {
   return Buffer.from(bytes).toString("utf8").replace(/\0/g, "").trim();
 }
 
-/** Human-readable status badge label. */
 export function marketStatusLabel(status: MarketState["status"]): string {
   const labels: Record<MarketState["status"], string> = {
     Open: "LIVE",
@@ -163,10 +136,6 @@ export function marketStatusLabel(status: MarketState["status"]): string {
   return labels[status];
 }
 
-/**
- * YES percentage for the odds bar.
- * Returns 50 before settlement (no data available by design).
- */
 export function yesPercent(
   market: Pick<MarketState, "revealedYesStake" | "revealedNoStake">
 ): number {

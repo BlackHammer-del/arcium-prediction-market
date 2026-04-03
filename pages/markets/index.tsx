@@ -8,7 +8,7 @@ import {
   MARKET_CATEGORIES,
   type DemoMarket,
   type MarketCategory,
-} from "../../utils/program";
+} from "../../lib/shared/market-types";
 
 type StatusFilter = "all" | "open" | "settled";
 type CategoryFilter = "all" | MarketCategory;

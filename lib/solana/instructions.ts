@@ -6,24 +6,22 @@ import {
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
-import type { Ciphertext } from "./arcium";
+import type { Ciphertext } from "../arcium/encrypt";
 import {
   MARKET_TOKEN_MINT,
   MARKET_TOKEN_SYMBOL,
   PROGRAM_ID,
   TOKEN_PROGRAM_ID,
+} from "./config";
+import {
   getAssociatedTokenAddress,
   getBondVaultPDA,
   getMarketPDA,
   getPositionPDA,
   getRegistryPDA,
   getVaultPDA,
-} from "./program";
+} from "./pdas";
 
-// The Next.js app does not currently bundle an Anchor IDL, so these helpers
-// encode the two client-facing instructions directly using Anchor's standard
-// discriminator + Borsh layout. That keeps the UI able to send real program
-// transactions without waiting on generated client code.
 const CREATE_MARKET_DISCRIMINATOR = Uint8Array.from([103, 226, 97, 235, 200, 188, 251, 254]);
 const SUBMIT_POSITION_DISCRIMINATOR = Uint8Array.from([164, 179, 77, 239, 217, 239, 158, 151]);
 const REGISTRY_TOTAL_MARKETS_OFFSET = 232;

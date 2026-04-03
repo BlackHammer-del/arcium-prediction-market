@@ -4,7 +4,7 @@ import Link from "next/link";
 import Navbar from "../components/Navbar";
 import MarketCard from "../components/MarketCard";
 import { deserializeMarket, type ApiMarket } from "../utils/api";
-import type { DemoMarket } from "../utils/program";
+import type { DemoMarket } from "../lib/shared/market-types";
 
 type FilterMode = "all" | "open" | "settled";
 

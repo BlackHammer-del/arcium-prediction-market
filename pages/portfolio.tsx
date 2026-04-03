@@ -8,8 +8,8 @@ import Navbar from "../components/Navbar";
 import {
   calculatePositionPnl,
   getPortfolioSummary,
-  type DemoPosition,
-} from "../utils/program";
+} from "../lib/shared/portfolio";
+import type { DemoPosition } from "../lib/shared/market-types";
 import { deserializePosition, type ApiPosition } from "../utils/api";
 import { createWalletAuthPayload } from "../utils/wallet-guard";
 

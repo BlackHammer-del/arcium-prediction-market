@@ -5,10 +5,10 @@ import { dirname, resolve } from "path";
 import Database from "better-sqlite3";
 import { Keypair } from "@solana/web3.js";
 import {
-  getPortfolioSummary,
   type MarketCategory,
   type MarketStatus,
-} from "../../utils/program";
+} from "../../lib/shared/market-types";
+import { getPortfolioSummary } from "../../lib/shared/portfolio";
 import {
   SolanaIndexerWorkerService,
   type IndexerSnapshot,

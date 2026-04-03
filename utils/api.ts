@@ -1,4 +1,4 @@
-import type { DemoMarket, DemoPosition, ResolutionTimelineStep } from "./program";
+import type { DemoMarket, DemoPosition, ResolutionTimelineStep } from "../lib/shared/market-types";
 import type { StoredMarket } from "../lib/server/store";
 import type { StoredPosition } from "../lib/server/store";
 

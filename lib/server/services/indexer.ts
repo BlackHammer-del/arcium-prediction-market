@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import type { MarketStatus } from "../../../utils/program";
+import type { MarketStatus } from "../../../lib/shared/market-types";
 
 // The store persists this service alongside markets so operators can inspect
 // an append-only activity feed and its tamper-evident audit trail.

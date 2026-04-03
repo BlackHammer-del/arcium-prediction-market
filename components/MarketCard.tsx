@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { format, formatDistanceToNow } from "date-fns";
-import { type MarketCategory, type MarketStatus } from "../utils/program";
+import type { MarketCategory, MarketStatus } from "../lib/shared/market-types";
 
 interface MarketCardProps {
   id: number;

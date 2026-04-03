@@ -26,9 +26,9 @@ That can distort honest participation. Oracle uses Arcium so that:
 Arcium is used on the client-side position flow, not as a vague "privacy layer" label.
 
 Current flow in this repo:
-1. The frontend encrypts stake size and position side locally with Arcium utilities in `utils/arcium.ts`.
+1. The frontend encrypts stake size and position side locally with Arcium utilities in `lib/arcium/encrypt.ts`.
 2. The app sends ciphertext plus a commitment hash instead of plaintext betting data.
-3. The nonce used to blind the stake commitment stays client-side in an encrypted browser vault in `utils/nonce-vault.ts`.
+3. The nonce used to blind the stake commitment stays client-side in an encrypted browser vault in `lib/arcium/nonce-vault.ts`.
 4. The backend store and APIs work with encrypted payloads, redacted history, and settlement-oriented records.
 5. The relay/reveal path builds a deterministic reveal message so aggregated totals can be recorded without exposing every individual position.
 
@@ -44,10 +44,16 @@ Current flow in this repo:
 ### Frontend
 
 - `pages/` contains the user flows for discovery, creation, portfolio, and market participation.
+- `features/` holds page-specific orchestration hooks so the page files stay focused on rendering.
 - `pages/_app.tsx` wires wallet providers and the Solana RPC endpoint.
 - `pages/markets/index.tsx` and `pages/portfolio.tsx` already consume backend APIs.
 - `pages/create/index.tsx` can create a real on-chain market first, then mirror the confirmed metadata into the backend when a token mint is configured.
 - `pages/market/[id].tsx` loads backend-backed market data and uses a real on-chain `submit_position` flow for chain-backed markets, while older backend-only markets still fall back to the prototype mirror path.
+
+### Shared App Logic
+
+- `lib/shared/` contains UI-safe market types and portfolio math used by both pages and backend adapters.
+- `lib/solana/` contains cluster config, PDA helpers, token formatting, and low-level instruction builders for the web client.
 
 ### Backend
 
@@ -64,8 +70,8 @@ Current flow in this repo:
 
 ### Arcium / Encryption Layer
 
-- `utils/arcium.ts` contains client-side encryption helpers and commitment generation.
-- `utils/nonce-vault.ts` stores stake nonces locally in an encrypted browser vault.
+- `lib/arcium/encrypt.ts` contains client-side encryption helpers and commitment generation.
+- `lib/arcium/nonce-vault.ts` stores stake nonces locally in an encrypted browser vault.
 - The project uses Arcium to prepare private submission payloads before they touch normal app/network boundaries.
 
 ## Current Status

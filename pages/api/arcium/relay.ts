@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { buildRevealMessage } from "../../../utils/arcium";
+import { buildRevealMessage } from "../../../lib/arcium/encrypt";
 import { enforceRateLimit, rateLimitKey, requireJson } from "../../../lib/server/api-guards";
 import { store } from "../../../lib/server/store";
 

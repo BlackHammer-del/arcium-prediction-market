@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { MARKET_CATEGORIES, type MarketCategory } from "../../../utils/program";
+import { MARKET_CATEGORIES, type MarketCategory } from "../../../lib/shared/market-types";
 
 interface NewsHeadline {
   title: string;

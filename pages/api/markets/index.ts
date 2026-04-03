@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../../../utils/program";
+import { MARKET_CATEGORIES, type MarketCategory, type MarketStatus } from "../../../lib/shared/market-types";
 import { serializeStoredMarket } from "../../../utils/api";
 import { enforceRateLimit, rateLimitKey, requireJson, requireWalletAuth } from "../../../lib/server/api-guards";
 import { normalizeWallet, store } from "../../../lib/server/store";
